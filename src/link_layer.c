@@ -5,45 +5,46 @@
 
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
-/*-----------------------------------------------------------------------*/
-#define START_S 0x7E // start of a supervision frame
-#define A1      0x03 // addr field in command frames(S) sent by the Transmitter or replies(U) sent by the reciever
-#define A2      0x01 // addr field in command frames(S) sent by the Reciever or replies(U) sent by the Transmiter
-//------Supervision and Unnumbered frames -----------//
-#define SET     0X03
-#define UA      0x07
-#define RR0     0xAA // reciever is ready to recieve an information frame nº 0
-#define RR1     0xAB // reciever is ready to recieve an information frame nº 1
-#define REJ0    0x54 // reciever is rejects information from frame nº 0
-#define REJ1    0x55 // reciever is rejects information from frame nº 1
-#define DISC    0x0B // frame to indicate termination of a connection
-#define BCC1(a,c) ((a)^(c)) // field to detect the occurence of errors in the header
-//------Information frames -----------//
-#define         0x00
+volatile int STOP = TRUE;
+
+int alarmEnabled = FALSE;
+int alarmCount = 0;
+
 /*-----------------------------------------------------------------------*/
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
 //A não perda de informação tem de ser garantida por esta layer
 //Os supervision frames sao de comando os unnembered sao de resposta
+
+// Alarm function handler
+void alarmHandler(int signal)
+{
+    alarmEnabled = FALSE;
+    alarmCount++;
+
+    printf("Waiting... #%d\n", alarmCount);
+}
+
 int llopen(LinkLayer connectionParameters)
 {
+    int fd = openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
     if (openSerialPort(connectionParameters.serialPort,
-                       connectionParameters.baudRate) < 0)
-    {
+                       connectionParameters.baudRate) < 0) {
 
         return -1;
     }
 
     // TODO
-    //slide 10, 22
-    //mandar SET e receber UA, supervision and unnembered frames para mandar o SET e o UA
+    // slide 10, 22
+    // mandar SET e receber UA, supervision and unnembered frames para mandar o SET e o UA
+    // TEMOS DE FAZER:
+    // 1. Funcões de escrita dos frames    2. Leitura dos frames pela state machine
 
-    unsigned char buf[BUF_SIZE] = {FLAG, ADDR, CTRL_SET, BCC1(ADDR,CTRL_SET), FLAG};
-
+    unsigned char buf[BUF_SIZE] = {START_S, A1, SET, BCC1(A1,SET), START_S};
 
     // Set alarm function handler
-    (void)signal(SIGALRM, alarmHandler);
+    (void) signal(SIGALRM, alarmHandler);
 
     while (alarmCount < 4) {
         if (alarmEnabled == FALSE) {
@@ -64,7 +65,7 @@ int llopen(LinkLayer connectionParameters)
         }
         printf("\n");
 
-        if (buf[3] == BCC1(ADDR, CTRL_UA)) {
+        if (buf[3] == BCC1(A1, UA)) {
             printf("RECEIVED CORRECTLY\n");
             alarm(0);
             break;
@@ -89,6 +90,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     //slide 23
     /*a state machine do reciever tem de estar preparada para receber um SET e a do Transmiter tem de estar pronto para receber UA. 
     Isto no inicio. se receber um set no meio das information frames é pq algo deu errado*/
+    
     return 0;
 }
 
