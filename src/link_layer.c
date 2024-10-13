@@ -8,7 +8,7 @@
 
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
-volatile int STOP = TRUE;
+
 
 int alarmEnabled = FALSE;
 int alarmCount = 0;
@@ -93,10 +93,43 @@ int llopen(LinkLayer connectionParameters)
        int max_retransmissions = connectionParameters.nRetransmissions;
        int timeout = connectionParameters.timeout;
        switch(connectionParameters.role) {
+        case LlTx: {
+            printf("TRANSMITTER");
+            unsigned char buf[BUF_SIZE] = {FLAG, A1, SET, BCC1(A1,SET), FLAG};
+
+            (void) signal(SIGALRM, alarmHandler);
+
+            while (alarmCount < max_retransmissions) {
+                if (alarmEnabled == FALSE) {
+                    int bytes = sendSupFrame(fd, A1, SET);
+                    printf("T %d bytes written\n", bytes);
+                    for (int i = 0; i < 5; i++) {
+                        printf("%x ", buf[i]);
+                    }
+                    printf("\n");
+                    alarm(timeout); 
+                    alarmEnabled = TRUE;
+
+                }
+                int bytes_r = read(fd, buf, BUF_SIZE);
+                printf("T %d number of bytes read\n", bytes_r);
+                for (int i = 0; i < 5; i++) {
+                    printf("0x%02x ", buf[i]);
+                }
+                printf("\n");
+
+                if (buf[3] == BCC1(A2, UA)) { //Fazer aqui verificação da receção de frames UA
+                    printf("RECEIVED CORRECTLY\n");
+                    alarm(0);
+                    break;
+                }
+            }
+            break;
+        }
         case LlRx: {
             printf("RECIEVER");
             unsigned char buf[BUF_SIZE] = {0};
-            while (STOP == FALSE) {
+            while (state != STOP_) {
                 int bytes = read(fd, buf, BUF_SIZE);
                 printf("R recieved = 0x%02X\n", buf[2]);
 
@@ -158,7 +191,6 @@ int llopen(LinkLayer connectionParameters)
                             if (byte == FLAG) {
                                 state = STOP_;
                                 sendSupFrame(fd, A2, UA);
-                                STOP = TRUE;
                                 printf("Transition to: STOP (valid frame received)\n");
                             } else {
                                 state = START;  
@@ -171,39 +203,6 @@ int llopen(LinkLayer connectionParameters)
                             state = START; 
                             break;
                     }
-                }
-            }
-            break;
-        }
-        case LlTx: {
-            printf("TRANSMITTER");
-            unsigned char buf[BUF_SIZE] = {FLAG, A1, SET, BCC1(A1,SET), FLAG};
-
-            (void) signal(SIGALRM, alarmHandler);
-
-            while (alarmCount < max_retransmissions) {
-                if (alarmEnabled == FALSE) {
-                    int bytes = sendSupFrame(fd, A1, SET);
-                    printf("T %d bytes written\n", bytes);
-                    for (int i = 0; i < 5; i++) {
-                        printf("%x ", buf[i]);
-                    }
-                    printf("\n");
-                    alarm(timeout); 
-                    alarmEnabled = TRUE;
-
-                }
-                int bytes_r = read(fd, buf, BUF_SIZE);
-                printf("T %d number of bytes read\n", bytes_r);
-                for (int i = 0; i < 5; i++) {
-                    printf("0x%02x ", buf[i]);
-                }
-                printf("\n");
-
-                if (buf[3] == BCC1(A2, UA)) { //Fazer aqui verificação da receção de frames UA
-                    printf("RECEIVED CORRECTLY\n");
-                    alarm(0);
-                    break;
                 }
             }
         }
