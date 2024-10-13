@@ -62,7 +62,7 @@ void alarmHandler(int signal)
     printf("Waiting... #%d\n", alarmCount);
 }
 
-void sendSupFrame(int fd, unsigned char addr, unsigned char ctrl){
+int sendSupFrame(int fd, unsigned char addr, unsigned char ctrl){
     unsigned char frame[BUF_SIZE] = {FLAG, addr, ctrl, addr ^ ctrl, FLAG};
     int bytes = write(fd, frame, BUF_SIZE);
     printf("SSF %d bytes written\n", bytes);
@@ -70,6 +70,7 @@ void sendSupFrame(int fd, unsigned char addr, unsigned char ctrl){
         printf("%x ", frame[i]);
     }
     printf("\n");
+    return bytes;
 }
 
 int llopen(LinkLayer connectionParameters)
@@ -90,6 +91,7 @@ int llopen(LinkLayer connectionParameters)
     
        LLState state = START;
        int max_retransmissions = connectionParameters.nRetransmissions;
+       int timeout = connectionParameters.timeout;
        switch(connectionParameters.role) {
         case LlRx: {
             printf("RECIEVER");
@@ -181,13 +183,13 @@ int llopen(LinkLayer connectionParameters)
 
             while (alarmCount < max_retransmissions) {
                 if (alarmEnabled == FALSE) {
-                    int bytes = write(fd, buf, BUF_SIZE);
+                    int bytes = sendSupFrame(fd, A1, SET);
                     printf("T %d bytes written\n", bytes);
                     for (int i = 0; i < 5; i++) {
                         printf("%x ", buf[i]);
                     }
                     printf("\n");
-                    alarm(T_SECONDS); 
+                    alarm(timeout); 
                     alarmEnabled = TRUE;
 
                 }
