@@ -2,12 +2,17 @@
 
 #include "application_layer.h"
 #include "link_layer.h"
+
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
 {
     LinkLayer linkLayer;
     strcpy(linkLayer.serialPort,serialPort);
-    linkLayer.role = strcmp(role, "tx") ? LlRx : LlTx;
+    if (strcmp(role, "tx") == 0) {
+        linkLayer.role = LlTx;
+    } else {
+        linkLayer.role = LlRx;
+    }
     linkLayer.baudRate = baudRate;
     linkLayer.nRetransmissions = nTries;
     linkLayer.timeout = timeout;
