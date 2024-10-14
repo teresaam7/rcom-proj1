@@ -117,12 +117,7 @@ int llopen(LinkLayer connectionParameters)
                     printf("0x%02x ", buf[i]);
                 }
                 printf("\n");
-
-                if (buf[3] == BCC1(A2, UA)) { //Fazer aqui verificação da receção de frames UA
-                    printf("RECEIVED CORRECTLY\n");
-                    alarm(0);
-                    break;
-                }
+                
                 for (int i = 0; i < bytes_r; i++) {
                     unsigned char byte = buf[i];
                     switch (state) {
