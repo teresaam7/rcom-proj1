@@ -24,6 +24,13 @@ typedef enum
    STOP_
 } LLState;
 
+typedef struct {
+    unsigned char expected_addr;
+    unsigned char send_ctrl;
+    unsigned char recv_ctrl;
+    unsigned char response_ctrl;
+} RoleParams;
+
 
 #define T_SECONDS 3
 #define BUF_SIZE 5 // POSIX compliant source
@@ -62,7 +69,7 @@ void alarmHandler(int signal)
     printf("Waiting... #%d\n", alarmCount);
 }
 
-int sendSupFrame(int fd, unsigned char addr, unsigned char ctrl){
+int sendSupFrame(int fd, unsigned char addr, unsigned char ctrl) {
     unsigned char frame[BUF_SIZE] = {FLAG, addr, ctrl, addr ^ ctrl, FLAG};
     int bytes = write(fd, frame, BUF_SIZE);
     printf("SSF %d bytes written\n", bytes);
@@ -73,211 +80,137 @@ int sendSupFrame(int fd, unsigned char addr, unsigned char ctrl){
     return bytes;
 }
 
-int llopen(LinkLayer connectionParameters)
-{
-    int fd = openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
-    if (openSerialPort(connectionParameters.serialPort,
-                       connectionParameters.baudRate) < 0) {
 
+LLState SetUaStateMachine (int fd, unsigned char expectedAddr, unsigned char expectedCtrl, unsigned char expectedBCC) { //state machine to check and send Supervision and Unnumbered frames, SET and UA
+    unsigned char buf[BUF_SIZE] = {0};
+    LLState state = START;
+    while (state != STOP_){
+        int bytes = read(fd, buf, BUF_SIZE);
+        if (bytes < 0) {
+            perror("Error reading from serial port");
+            return START;
+        }
+        printf("Received Bytes: ");
+        for (int i = 0; i < bytes; i++) {
+            printf("0x%02X ", buf[i]);
+        }
+        printf("\n");
+
+        for (int i = 0; i < bytes; i++) {
+            unsigned char byte = buf[i];
+            switch (state) {
+                case START:
+                    printf("State: START\n");
+                    if (byte == FLAG) {
+                        state = FLAG_RCV;
+                        printf("Transition to: FLAG_RCV\n");
+                    } else {
+                        printf("Byte 0x%02X does not match FLAG. Staying in START.\n", byte);
+                    }
+                    break;
+
+                case FLAG_RCV:
+                    printf("State: FLAG_RCV\n");
+                    if (byte == FLAG) {
+                        printf("Received FLAG again, staying in FLAG_RCV\n");
+                    } else if (byte == expectedAddr) {
+                        state = A_RCV;
+                        printf("Transition to: A_RCV (A byte received: 0x%02X)\n", byte);
+                    } else {
+                        state = START;
+                        printf("Unexpected byte (0x%02X), returning to START\n", byte);
+                    }
+                    break;
+
+                case A_RCV:
+                    printf("State: A_RCV\n");
+                    if (byte == FLAG) {
+                        state = FLAG_RCV;
+                        printf("Received FLAG, transition to: FLAG_RCV\n");
+                    } else if (byte == expectedCtrl) {
+                        state = C_RCV;
+                        printf("Transition to: C_RCV (C byte received: 0x%02X)\n", byte);
+                    } else {
+                        state = START;
+                        printf("Unexpected byte (0x%02X), returning to START\n", byte);
+                    }
+                    break;
+
+                case C_RCV:
+                    printf("State: C_RCV\n");
+                    if (byte == FLAG) {
+                        state = FLAG_RCV;
+                        printf("Received FLAG, transition to: FLAG_RCV\n");
+                    } else if (byte == expectedBCC) {
+                        state = BCC1_OK;
+                        printf("Transition to: BCC1_OK (BCC1 check passed: 0x%02X)\n", byte);
+                    } else {
+                        state = START;
+                        printf("BCC1 mismatch (received 0x%02X), returning to START\n", byte);
+                    }
+                    break;
+
+                case BCC1_OK:
+                    printf("State: BCC1_OK\n");
+                    if (byte == FLAG) {
+                        state = STOP_;
+                        printf("Transition to: STOP_  |!RECEIVED CORRECTLY!| \n");
+                    } else {
+                        state = START;
+                        printf("Expected FLAG but received 0x%02X, returning to START\n", byte);
+                    }
+                    break;
+
+                default:
+                    printf("Unknown state encountered. Resetting to START.\n");
+                    state = START;
+                    break;
+            }
+        }
+    }
+    return state;
+}
+
+int llopen(LinkLayer connectionParameters){
+    int fd = openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
+    if (fd < 0) {
         return -1;
     }
+    int max_retransmissions = connectionParameters.nRetransmissions;
+    int timeout = connectionParameters.timeout;
 
-    // TODO
-    // slide 10, 22
-    // mandar SET e receber UA, supervision and unnumbered frames para mandar o SET e o UA
-    // TEMOS DE FAZER:
-    // 1. Funcões de escrita dos frames    2. Leitura dos frames pela state machine
-
-    
-       LLState state = START;
-       int max_retransmissions = connectionParameters.nRetransmissions;
-       int timeout = connectionParameters.timeout;
-       switch(connectionParameters.role) {
+    switch (connectionParameters.role) {
         case LlTx: {
-            printf("TRANSMITTER");
-            unsigned char buf[BUF_SIZE] = {FLAG, A1, SET, BCC1(A1,SET), FLAG};
-
+            printf("TRANSMITTER\n");
             (void) signal(SIGALRM, alarmHandler);
 
-            while (alarmCount < max_retransmissions && state != STOP_) {
+            while (alarmCount < max_retransmissions) {
                 if (alarmEnabled == FALSE) {
-                    int bytes = sendSupFrame(fd, A1, SET);
-                    printf("T %d bytes written\n", bytes);
-                    for (int i = 0; i < 5; i++) {
-                        printf("%x ", buf[i]);
-                    }
-                    printf("\n");
+                    sendSupFrame(fd, A1, SET);
                     alarm(timeout); 
                     alarmEnabled = TRUE;
-
                 }
-                int bytes_r = read(fd, buf, BUF_SIZE);
-                printf("T %d number of bytes read\n", bytes_r);
-                for (int i = 0; i < 5; i++) {
-                    printf("0x%02x ", buf[i]);
-                }
-                printf("\n");
-                
-                for (int i = 0; i < bytes_r; i++) {
-                    unsigned char byte = buf[i];
-                    switch (state) {
-                        case START:
-                            printf("State: START\n");
-                            if (byte == FLAG) {
-                                state = FLAG_RCV;
-                                printf("Transition to: FLAG_RCV\n");
-                            }
-                            break;
 
-                        case FLAG_RCV:
-                            printf("State: FLAG_RCV\n");
-                            if (byte == FLAG) {
-                                printf("Received FLAG again, staying in FLAG_RCV\n");
-                                state = FLAG_RCV;  
-                            } else if (byte == A2) {
-                                state = A_RCV;
-                                printf("Transition to: A_RCV (A byte received)\n");
-                            } else {
-                                state = START;  
-                                printf("Unexpected byte, returning to START\n");
-                            }
-                            break;
-
-                        case A_RCV:
-                            printf("State: A_RCV\n");
-                            if (byte == FLAG) {
-                                state = FLAG_RCV;  
-                                printf("Received FLAG, transition to: FLAG_RCV\n");
-                            } else if (byte == UA) {
-                                state = C_RCV;
-                                printf("Transition to: C_RCV (C byte received)\n");
-                            } else {
-                                state = START;  
-                                printf("Unexpected byte, returning to START\n");
-                            }
-                            break;
-
-                        case C_RCV:
-                            printf("State: C_RCV\n");
-                            if (byte == FLAG) {
-                                state = FLAG_RCV;  
-                                printf("Received FLAG, transition to: FLAG_RCV\n");
-                            } else if (byte == BCC1(A2, UA)) {
-                                state = BCC1_OK;
-                                printf("Transition to: BCC1_OK (BCC1 check passed)\n");
-                            } else {
-                                state = START; 
-                                printf("BCC1 mismatch, returning to START\n");
-                            }
-                            break;
-
-                        case BCC1_OK:
-                            printf("State: BCC1_OK\n");
-                            if (byte == FLAG) {
-                                state = STOP_;
-                                //sendSupFrame(fd, A2, UA);
-                                printf("Transition to: STOP (valid frame received)\n");
-                                alarm(0);
-                                break;
-                            } else {
-                                state = START;  
-                                printf("Expected FLAG but received something else, returning to START\n");
-                            }
-                            break;
-
-                        default:
-                            printf("Unknown state, resetting to START\n");
-                            state = START; 
-                            break;
-                    }
+                LLState state = SetUaStateMachine(fd, A2, UA, BCC1(A2, UA));
+                if (state == STOP_) {
+                    alarm(0);
+                    break;
                 }
             }
             break;
         }
         case LlRx: {
-            printf("RECIEVER");
-            unsigned char buf[BUF_SIZE] = {0};
-            while (state != STOP_) {
-                int bytes = read(fd, buf, BUF_SIZE);
-                printf("R recieved = 0x%02X\n", buf[2]);
-
-                    for (int i = 0; i < bytes; i++) {
-                    unsigned char byte = buf[i];
-                    switch (state) {
-                        case START:
-                            printf("State: START\n");
-                            if (byte == FLAG) {
-                                state = FLAG_RCV;
-                                printf("Transition to: FLAG_RCV\n");
-                            }
-                            break;
-
-                        case FLAG_RCV:
-                            printf("State: FLAG_RCV\n");
-                            if (byte == FLAG) {
-                                printf("Received FLAG again, staying in FLAG_RCV\n");
-                                state = FLAG_RCV;  
-                            } else if (byte == A1) {
-                                state = A_RCV;
-                                printf("Transition to: A_RCV (A byte received)\n");
-                            } else {
-                                state = START;  
-                                printf("Unexpected byte, returning to START\n");
-                            }
-                            break;
-
-                        case A_RCV:
-                            printf("State: A_RCV\n");
-                            if (byte == FLAG) {
-                                state = FLAG_RCV;  
-                                printf("Received FLAG, transition to: FLAG_RCV\n");
-                            } else if (byte == SET) {
-                                state = C_RCV;
-                                printf("Transition to: C_RCV (C byte received)\n");
-                            } else {
-                                state = START;  
-                                printf("Unexpected byte, returning to START\n");
-                            }
-                            break;
-
-                        case C_RCV:
-                            printf("State: C_RCV\n");
-                            if (byte == FLAG) {
-                                state = FLAG_RCV;  
-                                printf("Received FLAG, transition to: FLAG_RCV\n");
-                            } else if (byte == BCC1(A1, SET)) {
-                                state = BCC1_OK;
-                                printf("Transition to: BCC1_OK (BCC1 check passed)\n");
-                            } else {
-                                state = START; 
-                                printf("BCC1 mismatch, returning to START\n");
-                            }
-                            break;
-
-                        case BCC1_OK:
-                            printf("State: BCC1_OK\n");
-                            if (byte == FLAG) {
-                                state = STOP_;
-                                sendSupFrame(fd, A2, UA);
-                                printf("Transition to: STOP (valid frame received)\n");
-                            } else {
-                                state = START;  
-                                printf("Expected FLAG but received something else, returning to START\n");
-                            }
-                            break;
-
-                        default:
-                            printf("Unknown state, resetting to START\n");
-                            state = START; 
-                            break;
-                    }
-                }
+            printf("RECEIVER\n");
+            LLState state = SetUaStateMachine(fd, A1, SET, BCC1(A1, SET));
+            if (state == STOP_) {
+                sendSupFrame(fd, A2, UA);
             }
+            break;
         }
     }
-
     return 1;
 }
+
 
 ////////////////////////////////////////////////
 // LLWRITE
