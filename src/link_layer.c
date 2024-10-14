@@ -249,44 +249,38 @@ int llread(unsigned char *packet)
 // LLCLOSE
 ////////////////////////////////////////////////
 
-
-
 int llclose(int showStatistics)
 {
-    printf("CLOSING CONNECTION\n");
-
     (void) signal(SIGALRM, alarmHandler);  
-    alarmCount = 0;                        
-    alarmEnabled = FALSE;                  
+    alarmCount = 0;                       
+    alarmEnabled = FALSE;                 
 
-    while (alarmCount <  max_retransmissions ) {
-        if (alarmEnabled == FALSE) {
-            sendSupervisionFrame(fd, A1, DISC);  
-            alarm(timeout); 
-            alarmEnabled = TRUE;
-        }
+    while (alarmCount < max_retransmissions) {
+        sendSupFrame(showStatistics, A1, DISC); 
+        alarm(timeout);              
+        alarmEnabled = TRUE;
 
-        LLState state = SetUaStateMachine(fd, A2, DISC, BCC1(A2, DISC));
-        if (state == STOP_) {
-            alarm(0);  
+        LLState state = SetUaStateMachine(showStatistics, A2, DISC, BCC1(A2, DISC)); 
+        if (state == STOP_) {  
+            alarm(0);          
             alarmEnabled = FALSE;
             break;
         }
 
-        if (alarmTriggered) {
-            printf("Timeout, retrying DISC...\n");
-            alarmTriggered = FALSE;  
+        if (alarmEnabled) {
+            printf("TIMEOUT...\n");
+            alarmEnabled = FALSE; 
             alarmCount++;
         }
     }
 
-    if (alarmCount >=  max_retransmissions ) {
-        printf("Failed to close connection after retries.\n");
-        return -1;  
+    if (alarmCount >= max_retransmissions) {
+        printf("FAILED AFTER RETRIES.\n");
+        return -1; 
     }
 
-    sendSupervisionFrame(fd, A1, UA); 
-    printf("Connection closed successfully.\n");
+    sendSupFrame(showStatistics, A1, UA); 
+     printf("CLOSED WITH SUCCESS.\n");
 
     int clstat = closeSerialPort();
     return clstat;
