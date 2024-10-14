@@ -99,7 +99,7 @@ int llopen(LinkLayer connectionParameters)
 
             (void) signal(SIGALRM, alarmHandler);
 
-            while (alarmCount < max_retransmissions) {
+            while (alarmCount < max_retransmissions && state != STOP_) {
                 if (alarmEnabled == FALSE) {
                     int bytes = sendSupFrame(fd, A1, SET);
                     printf("T %d bytes written\n", bytes);
@@ -122,6 +122,79 @@ int llopen(LinkLayer connectionParameters)
                     printf("RECEIVED CORRECTLY\n");
                     alarm(0);
                     break;
+                }
+                for (int i = 0; i < bytes_r; i++) {
+                    unsigned char byte = buf[i];
+                    switch (state) {
+                        case START:
+                            printf("State: START\n");
+                            if (byte == FLAG) {
+                                state = FLAG_RCV;
+                                printf("Transition to: FLAG_RCV\n");
+                            }
+                            break;
+
+                        case FLAG_RCV:
+                            printf("State: FLAG_RCV\n");
+                            if (byte == FLAG) {
+                                printf("Received FLAG again, staying in FLAG_RCV\n");
+                                state = FLAG_RCV;  
+                            } else if (byte == A2) {
+                                state = A_RCV;
+                                printf("Transition to: A_RCV (A byte received)\n");
+                            } else {
+                                state = START;  
+                                printf("Unexpected byte, returning to START\n");
+                            }
+                            break;
+
+                        case A_RCV:
+                            printf("State: A_RCV\n");
+                            if (byte == FLAG) {
+                                state = FLAG_RCV;  
+                                printf("Received FLAG, transition to: FLAG_RCV\n");
+                            } else if (byte == UA) {
+                                state = C_RCV;
+                                printf("Transition to: C_RCV (C byte received)\n");
+                            } else {
+                                state = START;  
+                                printf("Unexpected byte, returning to START\n");
+                            }
+                            break;
+
+                        case C_RCV:
+                            printf("State: C_RCV\n");
+                            if (byte == FLAG) {
+                                state = FLAG_RCV;  
+                                printf("Received FLAG, transition to: FLAG_RCV\n");
+                            } else if (byte == BCC1(A2, UA)) {
+                                state = BCC1_OK;
+                                printf("Transition to: BCC1_OK (BCC1 check passed)\n");
+                            } else {
+                                state = START; 
+                                printf("BCC1 mismatch, returning to START\n");
+                            }
+                            break;
+
+                        case BCC1_OK:
+                            printf("State: BCC1_OK\n");
+                            if (byte == FLAG) {
+                                state = STOP_;
+                                //sendSupFrame(fd, A2, UA);
+                                printf("Transition to: STOP (valid frame received)\n");
+                                alarm(0);
+                                break;
+                            } else {
+                                state = START;  
+                                printf("Expected FLAG but received something else, returning to START\n");
+                            }
+                            break;
+
+                        default:
+                            printf("Unknown state, resetting to START\n");
+                            state = START; 
+                            break;
+                    }
                 }
             }
             break;
