@@ -265,6 +265,8 @@ unsigned char infoFrameStateMachine(int fd) {
     unsigned char infoFrame = 0;
     LLState state = START;
 
+    printf("Starting infoFrameStateMachine...\n");
+
     while (state != STOP_ && !alarmEnabled) {
         int bytesRead = read(fd, &byte, 1);
         
@@ -272,43 +274,69 @@ unsigned char infoFrameStateMachine(int fd) {
             continue;  
         }
 
+        printf("Byte read: 0x%02X (State: %d)\n", byte, state);
+
         switch (state) {
             case START:
-                if (byte == FLAG) state = FLAG_RCV;  
+                if (byte == FLAG) {
+                    state = FLAG_RCV;  
+                    printf("State transitioned to FLAG_RCV.\n");
+                }
                 break;
             case FLAG_RCV:
-                if (byte == A2) state = A_RCV; 
-                else if (byte != FLAG) state = START;
+                if (byte == A2) {
+                    state = A_RCV; 
+                    printf("State transitioned to A_RCV.\n");
+                } else if (byte != FLAG) {
+                    state = START;
+                    printf("Invalid byte received. Transitioned back to START.\n");
+                }
                 break;
             case A_RCV:
                 if (byte == RR0 || byte == RR1 || byte == REJ0 || byte == REJ1 || byte == DISC) {
                     infoFrame = byte;  
                     state = C_RCV;  
+                    printf("State transitioned to C_RCV with infoFrame: 0x%02X.\n", infoFrame);
                 } else if (byte == FLAG) {
                     state = FLAG_RCV; 
+                    printf("State transitioned to FLAG_RCV.\n");
                 } else {
                     state = START;
+                    printf("Invalid byte received. Transitioned back to START.\n");
                 }
                 break;
             case C_RCV:
-                if (byte == BCC1(A2, infoFrame)) state = BCC1_OK;
-                else if (byte == FLAG) state = FLAG_RCV; 
-                else state = START; 
+                if (byte == BCC1(A2, infoFrame)) {
+                    state = BCC1_OK;
+                    printf("State transitioned to BCC1_OK.\n");
+                } else if (byte == FLAG) {
+                    state = FLAG_RCV; 
+                    printf("State transitioned to FLAG_RCV.\n");
+                } else {
+                    state = START; 
+                    printf("Invalid BCC1 received. Transitioned back to START.\n");
+                }
                 break;
             case BCC1_OK:
-                if (byte == FLAG) state = STOP_;
-                else state = START; 
+                if (byte == FLAG) {
+                    state = STOP_;
+                    printf("State transitioned to STOP_. Frame complete.\n");
+                } else {
+                    state = START; 
+                    printf("Invalid byte received. Transitioned back to START.\n");
+                }
                 break;
             default:
                 state = START;
+                printf("Unknown state. Transitioned back to START.\n");
                 break;
         }
     }
+
     return infoFrame;
 }
 
 int llwrite(int fd, const unsigned char *buf, int bufSize) {
-    // Tamanho inicial da trama: FLAG (1) + A1 (1) + Control (1) + BCC1 (1) + Dados (bufSize) + BCC2 (1) + FLAG (1)
     int totalSize = 6 + bufSize; 
     unsigned char *frame = (unsigned char *) malloc(totalSize);
 
@@ -320,7 +348,7 @@ int llwrite(int fd, const unsigned char *buf, int bufSize) {
     memcpy(frame + 4, buf, bufSize);
     unsigned char BCC2 = calculateBCC2(buf, bufSize);
 
-    int j = 4; // Começa após A, C e BCC1
+    int j = 4; // Start after A, C and BCC1
     for (int i = 0; i < bufSize; i++) {
         byteStuffingTechnique(&frame, &totalSize, buf[i], &j);
     }
@@ -333,14 +361,16 @@ int llwrite(int fd, const unsigned char *buf, int bufSize) {
     int transmission = 0;
     int check_rej = 0, check_rr = 0;
 
+    printf("Starting transmission with a maximum of %d attempts...\n", max_retransmissions);
+
     while (transmission < max_retransmissions) { 
         alarmEnabled = FALSE;   
         alarm(timeout);       
         check_rej = 0;
         check_rr = 0;
 
-
-         while (!alarmEnabled && !check_rej && !check_rr) {
+        while (!alarmEnabled && !check_rej && !check_rr) {
+            printf("Writing frame to fd...\n");
             write(fd, frame, j);
 
             unsigned char res = infoFrameStateMachine(fd); 
@@ -349,16 +379,21 @@ int llwrite(int fd, const unsigned char *buf, int bufSize) {
                 continue;
             } else if (res == REJ(0) || res == REJ(1)) { 
                 check_rej = 1;
+                printf("Received REJ response.\n");
             } else if (res == RR(0) || res == RR(1)) { 
                 check_rr = 1;
                 send = (send + 1) % 2; 
+                printf("Received RR response. Transitioning send to %d.\n", send);
             } else {
                 continue;
             }
         }
 
-        if (check_rr) 
+        if (check_rr) {
+            printf("Transmission successful.\n");
             break; 
+        }
+        printf("Transmission failed, attempt %d.\n", transmission + 1);
         transmission++;  
     }
 
@@ -367,13 +402,11 @@ int llwrite(int fd, const unsigned char *buf, int bufSize) {
     if (check_rr) {
         return totalSize;
     } else {
+        printf("Max transmissions reached. Closing link layer.\n");
         llclose(fd);
         return -1;
     }
 }
-
-
-
 
 ////////////////////////////////////////////////
 // LLREAD
@@ -381,6 +414,7 @@ int llwrite(int fd, const unsigned char *buf, int bufSize) {
 
 int processingData(int fd, unsigned char *packet, unsigned char byte, int *i, unsigned char *bcc2) {
     if (byte == ESC) {
+        printf("ESC detected. Transitioning to DETECTED_ESC.\n");
         return DETECTED_ESC; 
     } else if (byte == FLAG) {
         *bcc2 = packet[*i - 1]; 
@@ -388,55 +422,81 @@ int processingData(int fd, unsigned char *packet, unsigned char byte, int *i, un
         packet[*i] = '\0'; 
 
         unsigned char bcc2_res = calculateBCC2(packet, *i);
+        printf("Received FLAG. Comparing BCC2. Calculated BCC2: 0x%02X, Received BCC2: 0x%02X\n", bcc2_res, *bcc2);
 
         if (*bcc2 == bcc2_res) {
+            printf("BCC2 match. Transitioning to STOP_.\n");
             return STOP_; 
         } else {
-            printf("Error: retransmission\n");
+            printf("Error: retransmission required.\n");
             sendSupFrame(fd, A2, REJ(receive));
             return -1; 
         }
     } else {
         packet[*i] = byte; 
         (*i)++; 
+        printf("Processing byte: 0x%02X. Current index: %d\n", byte, *i);
         return PROCESSING; 
     }
 }
-
 
 int llread(int fd, unsigned char *packet) {
     unsigned char byte, infoFrame, bcc2;
     int i = 0;
     LLState state = START;
 
+    printf("Starting llread...\n");
+
     while (state != STOP_) {  
         if (read(fd, &byte, 1) > 0) {
+            printf("Byte read: 0x%02X (State: %d)\n", byte, state);
             switch (state) {
                 case START:
-                    if (byte == FLAG) state = FLAG_RCV; 
+                    if (byte == FLAG) {
+                        state = FLAG_RCV; 
+                        printf("State transitioned to FLAG_RCV.\n");
+                    }
                     break;
 
                 case FLAG_RCV:
-                    if (byte == A1) state = A_RCV; 
-                    else if (byte != FLAG) state = START; 
+                    if (byte == A1) {
+                        state = A_RCV; 
+                        printf("State transitioned to A_RCV.\n");
+                    } else if (byte != FLAG) {
+                        state = START; 
+                        printf("Invalid byte received. Transitioned back to START.\n");
+                    }
                     break;
 
                 case A_RCV:
                     if (byte == I(0) || byte == I(1)) {
                         state = C_RCV; 
                         infoFrame = byte; 
-                    } else if (byte == FLAG) state = FLAG_RCV; 
-                    else if (byte == DISC) {
+                        printf("State transitioned to C_RCV with infoFrame: 0x%02X.\n", infoFrame);
+                    } else if (byte == FLAG) {
+                        state = FLAG_RCV; 
+                        printf("State transitioned to FLAG_RCV.\n");
+                    } else if (byte == DISC) {
                         sendSupFrame(fd, A2, DISC);
+                        printf("DISC received. Closing connection.\n");
                         return 0; 
-                    } else state = START; 
+                    } else {
+                        state = START; 
+                        printf("Invalid byte received. Transitioned back to START.\n");
+                    }
                     break;
 
                 case C_RCV:
                     if (byte == (A1 ^ infoFrame) || byte == (A2 ^ infoFrame)) {
                         state = PROCESSING; 
-                    } else if (byte == FLAG) state = FLAG_RCV; 
-                    else state = START; 
+                        printf("State transitioned to PROCESSING.\n");
+                    } else if (byte == FLAG) {
+                        state = FLAG_RCV; 
+                        printf("State transitioned to FLAG_RCV.\n");
+                    } else {
+                        state = START; 
+                        printf("Invalid byte received. Transitioned back to START.\n");
+                    }
                     break;
 
                 case PROCESSING:
@@ -445,11 +505,13 @@ int llread(int fd, unsigned char *packet) {
 
                 case DETECTED_ESC:
                     state = PROCESSING; 
-                    if (byte == ESC || byte == FLAG) packet[i++] = byte; 
-                    else {
+                    if (byte == ESC || byte == FLAG) {
+                        packet[i++] = byte; 
+                    } else {
                         packet[i++] = ESC; 
                         packet[i++] = byte; 
                     }
+                    printf("ESC processed, current index: %d\n", i);
                     break;
 
                 default:
