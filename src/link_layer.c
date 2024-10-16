@@ -228,7 +228,11 @@ int llwrite(const unsigned char *buf, int bufSize)
     //slide 23
     /*a state machine do reciever tem de estar preparada para receber um SET e a do Transmiter tem de estar pronto para receber UA. 
     Isto no inicio. se receber um set no meio das information frames é pq algo deu errado*/
-    
+    // Quando os frames sao recebidos corretamente mandar o controlo para a app layer ~// slide 23
+
+    //Como o fd nao é passado como argumento, é melhor fazer variavel global maybe?
+
+    //Return number of chars written, or "-1" on error.
     return 0;
 }
 
