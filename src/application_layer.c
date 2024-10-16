@@ -79,18 +79,86 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             break;
         }
         case LlRx: {
-            //read ctrl
             unsigned char *packet = (unsigned char *)malloc(MAX_PAYLOAD_SIZE);
-            while(llread(packet))
-            //read data e escrever num file
-            //read ctrl final
+            if (packet == NULL) {
+                perror("Failed to allocate memory for packet");
+                return exit(-1);
+            }
 
+            int packetSize = -1;
+
+
+            while ((packetSize = llread(fd, packet)) < 0);
+            if (packetSize < 0) {
+                fprintf(stderr, "Error reading control packet\n");
+                free(packet);
+                return EXIT_FAILURE;
+            }
+
+            unsigned long int rxFileSize = 0;
+            unsigned char* fileName = parseCtrlPacket(packet, packetSize);
+            if (fileName == NULL) {
+                fprintf(stderr, "Failed to parse control packet\n");
+                free(packet);
+                return EXIT_FAILURE;
+            }
+
+            FILE *newFile = fopen((char *)fileName, "wb+");
+            if (newFile == NULL) {
+                perror("Error opening file for writing");
+                free(packet); 
+                return EXIT_FAILURE;
+            }
+
+            while (1) {
+                while ((packetSize = llread(fd, packet)) < 0);
+                if (packetSize == 0) {
+                    break;  
+                }
+
+                if (packet[0] == 2) { 
+                    unsigned char *buffer = (unsigned char *)malloc(packetSize);
+                    if (buffer == NULL) {
+                        perror("Failed to allocate memory for buffer");
+                        fclose(newFile); 
+                        free(packet); 
+                        return EXIT_FAILURE;
+                    }
+
+                    memcpy(buffer, packet + 4, packetSize - 4);
+                    buffer += packetSize + 4;
+                    fwrite(buffer, sizeof(unsigned char), packetSize - 4, newFile); 
+                    free(buffer); 
+                }
+            }
             
-            break;
+                fclose(newFile);
+                free(packet);
+
+                    //buscar o nome do file ao packet de controlo lido
+                    //read data e escrever num file
+                    //read ctrl final
+
+
+                    break;
             }
         }
 
     }
+}
+
+
+unsigned char * parseCtrlPacket(unsigned char* packet, int size){
+    unsigned char fileNameNBytes = packet[3 + packet[2] + 1]; 
+    unsigned char *fileName = (unsigned char *)malloc(fileNameNBytes + 1); 
+    if (fileName == NULL) {
+        perror("Failed to allocate memory for file name");
+        return NULL; 
+    }
+    memcpy(fileName, packet + 3 + packet[2] + 2, fileNameNBytes);
+    fileName[fileNameNBytes] = '\0'; 
+
+    return fileName;
 }
 
 unsigned char* createCtrlPacket(int c, int* fileSize, const char *filename){
