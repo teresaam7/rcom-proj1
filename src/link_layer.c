@@ -45,6 +45,7 @@ typedef struct {
 #define FLAG    0x7E // start of a supervision frame
 #define A1      0x03 // addr field in command frames(S) sent by the Transmitter or replies(U) sent by the reciever
 #define A2      0x01 // addr field in command frames(S) sent by the Reciever or replies(U) sent by the Transmiter
+#define ESC     0x7D // escape octet followed by the result of the exclusive
 
 //------Supervision and Unnumbered frames -----------//
 
@@ -237,7 +238,6 @@ int llwrite(int fd, const unsigned char *buf, int bufSize) {
     int totalSize = 6 + bufSize; 
     unsigned char *frame = (unsigned char *) malloc(totalSize);
 
- 
     frame[0] = FLAG;                
     frame[1] = A1;                
     frame[2] = (tramaTx == 0) ? 0x00 : 0x80; // Campo de controle (C) para número de sequência N(s)
@@ -250,15 +250,15 @@ int llwrite(int fd, const unsigned char *buf, int bufSize) {
     }
 
     // Copiando os dados da buffer na trama
-    int j = 4; // índice para onde começa a copiar os dados
+    int start = 4; // índice para onde começa a copiar os dados
     for (int i = 0; i < bufSize; i++) {
         // Verificação de byte stuffing (substituir FLAG e ESC)
         if (buf[i] == FLAG || buf[i] == ESC) {
-            frame = realloc(frame, ++frameSize); // Aumentar o tamanho da trama
-            frame[j++] = ESC;                    // Incluir ESC
-            frame[j++] = buf[i] ^ 0x20;          // XOR com 0x20 (escapar o byte especial)
+            frame = realloc(frame, ++totalSize); // Aumentar o tamanho da trama
+            frame[start++] = ESC;                    // Incluir ESC
+            frame[start++] = buf[i] ^ 0x20;          // XOR com 0x20 (escapar o byte especial)
         } else {
-            frame[j++] = buf[i];                 // Dados normais
+            frame[start++] = buf[i];                 
         }
     }
 
