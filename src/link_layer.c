@@ -15,6 +15,9 @@ int alarmCount = 0;
 int max_retransmissions = 0;
 int timeout = 0;
 
+unsigned char tramaTx = 0;
+extern int fd;
+
 typedef enum
 {
    START,
@@ -36,11 +39,15 @@ typedef struct {
 
 #define T_SECONDS 3
 #define BUF_SIZE 5 // POSIX compliant source
+
 /*-----------------------------------------------------------------------*/
+
 #define FLAG    0x7E // start of a supervision frame
 #define A1      0x03 // addr field in command frames(S) sent by the Transmitter or replies(U) sent by the reciever
 #define A2      0x01 // addr field in command frames(S) sent by the Reciever or replies(U) sent by the Transmiter
+
 //------Supervision and Unnumbered frames -----------//
+
 #define SET     0X03
 #define UA      0x07
 #define RR0     0xAA // reciever is ready to recieve an information frame nº 0
@@ -49,10 +56,11 @@ typedef struct {
 #define REJ1    0x55 // reciever is rejects information from frame nº 1
 #define DISC    0x0B // frame to indicate termination of a connection
 #define BCC1(a,c) ((a)^(c)) // field to detect the occurence of errors in the header
+
 //------Information frames -----------//
+
 #define INFO0    0x00 // Information frame number 0
 #define INFO1    0x80 // Information frame number 1
-
 
 /*-----------------------------------------------------------------------*/
 ////////////////////////////////////////////////
@@ -174,7 +182,7 @@ LLState SetUaStateMachine (int fd, unsigned char expectedAddr, unsigned char exp
 }
 
 int llopen(LinkLayer connectionParameters){
-    int fd = openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
+    fd = openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
     if (fd < 0) {
         return -1;
     }
@@ -217,20 +225,107 @@ int llopen(LinkLayer connectionParameters){
 ////////////////////////////////////////////////
 // LLWRITE
 ////////////////////////////////////////////////
-int llwrite(const unsigned char *buf, int bufSize)
-{
 
-
-    // TODO
-
-    /*escrever um pacote e fazer state machine a receber o pacote controlo a dizer que
+ /*escrever um pacote e fazer state machine a receber o pacote controlo a dizer que
     (o que foi escrito foi recebido) */
     //slide 23
     /*a state machine do reciever tem de estar preparada para receber um SET e a do Transmiter tem de estar pronto para receber UA. 
     Isto no inicio. se receber um set no meio das information frames é pq algo deu errado*/
-    
-    return 0;
+
+int llwrite(int fd, const unsigned char *buf, int bufSize) {
+    // Tamanho inicial da trama: FLAG (1) + A1 (1) + Control (1) + BCC1 (1) + Dados (bufSize) + BCC2 (1) + FLAG (1)
+    int totalSize = 6 + bufSize; 
+    unsigned char *frame = (unsigned char *) malloc(totalSize);
+
+ 
+    frame[0] = FLAG;                
+    frame[1] = A1;                
+    frame[2] = (tramaTx == 0) ? 0x00 : 0x80; // Campo de controle (C) para número de sequência N(s)
+    frame[3] = frame[1] ^ frame[2];   // BCC1 (XOR entre A e C)
+
+    // BCC2 (XOR entre todos os bytes dos dados)
+    unsigned char BCC2 = buf[0];
+    for (int i = 1; i < bufSize; i++) {
+        BCC2 ^= buf[i];
+    }
+
+    // Copiando os dados da buffer na trama
+    int j = 4; // índice para onde começa a copiar os dados
+    for (int i = 0; i < bufSize; i++) {
+        // Verificação de byte stuffing (substituir FLAG e ESC)
+        if (buf[i] == FLAG || buf[i] == ESC) {
+            frame = realloc(frame, ++frameSize); // Aumentar o tamanho da trama
+            frame[j++] = ESC;                    // Incluir ESC
+            frame[j++] = buf[i] ^ 0x20;          // XOR com 0x20 (escapar o byte especial)
+        } else {
+            frame[j++] = buf[i];                 // Dados normais
+        }
+    }
+
+    // Aplicando byte stuffing no BCC2, se necessário
+    if (BCC2 == FLAG || BCC2 == ESC) {
+        frame = realloc(frame, ++frameSize);
+        frame[j++] = ESC;
+        frame[j++] = BCC2 ^ 0x20;  // XOR com 0x20 para escapar
+    } else {
+        frame[j++] = BCC2;         // BCC2 normal
+    }
+
+    // FLAG final
+    frame[j++] = FLAG;
+
+    // Variáveis para controlar transmissões e estado de aceitação/rejeição
+    int currentTransmission = 0;
+    int rejected = 0, accepted = 0;
+
+    while (currentTransmission < max_retransmissions) { 
+        alarmEnabled = FALSE;   
+        alarm(timeout);       
+        rejected = 0;
+        accepted = 0;
+
+        // Tentativa de envio da trama
+        while (!alarmEnabled && !rejected && !accepted) {
+            // Enviar a trama
+            write(fd, frame, j);
+
+            // Ler a resposta do receptor
+            unsigned char response = readControlFrame(fd);
+
+            // Ignorar resposta vazia
+            if (!response) continue;
+
+            // Verificar se houve rejeição ou aceitação
+            if (response == 0x81 || response == 0x81) {  // C_REJ(0) ou C_REJ(1)
+                rejected = 1;
+            } else if (response == 0x85 || response == 0x85) {  // C_RR(0) ou C_RJ
+                        } else if (response == 0x85 || response == 0xC5) {  // C_RR(0) ou C_RR(1)
+                accepted = 1;
+                tramaTx = (tramaTx + 1) % 2;  // Alternar o número de sequência para a próxima trama
+            } else {
+                continue;  // Resposta inesperada, ignorar e esperar por outra resposta
+            }
+        }
+
+        if (accepted) break;  // Se a trama foi aceita, sair do loop de retransmissões
+        currentTransmission++;  // Incrementar o número de transmissões feitas
+    }
+
+    // Limpar a memória alocada para a trama
+    free(frame);
+
+    // Se aceito, retorna o tamanho da trama escrita
+    if (accepted) {
+        return frameSize;
+    } else {
+        // Se não foi aceito após o número máximo de retransmissões, fechar a conexão
+        llclose(fd);
+        return -1;
+    }
 }
+
+
+
 
 ////////////////////////////////////////////////
 // LLREAD
@@ -280,7 +375,7 @@ int llclose(int showStatistics)
     }
 
     sendSupFrame(showStatistics, A1, UA); 
-     printf("CLOSED WITH SUCCESS.\n");
+    printf("CLOSED WITH SUCCESS.\n");
 
     int clstat = closeSerialPort();
     return clstat;
