@@ -250,6 +250,62 @@ unsigned char calculateBCC2(const unsigned char *buf, int bufSize) {
     return BCC2;
 }
 
+void byteStuffingTechnique(unsigned char **frame, int *frameSize, unsigned char byte, int *j) {
+    if (byte == FLAG || byte == ESC) {
+        *frame = (unsigned char *)realloc(*frame, ++(*frameSize)); 
+        (*frame)[(*j)++] = ESC;
+    }
+    (*frame)[(*j)++] = byte;
+}
+
+unsigned char infoFrameStateMachine(int fd) {
+    unsigned char byte;
+    unsigned char infoFrame = 0;
+    LLState state = START;
+
+    while (state != STOP_ && !alarmEnabled) {
+        int bytesRead = read(fd, &byte, 1);
+        
+        if (bytesRead <= 0) {
+            continue;  
+        }
+
+        switch (state) {
+            case START:
+                if (byte == FLAG) state = FLAG_RCV;  
+                break;
+            case FLAG_RCV:
+                if (byte == A2) state = A_RCV; 
+                else if (byte != FLAG) state = START;
+                break;
+            case A_RCV:
+                if (byte == RR0 || byte == RR1 || byte == REJ0 || byte == REJ1 || byte == DISC) {
+                    infoFrame = byte;  
+                    state = C_RCV;  
+                } else if (byte == FLAG) {
+                    state = FLAG_RCV; 
+                } else {
+                    state = START;
+                }
+                break;
+            case C_RCV:
+                if (byte == BCC1(A2, infoFrame)) state = BCC1_OK;
+                else if (byte == FLAG) state = FLAG_RCV; 
+                else state = START; 
+                break;
+            case BCC1_OK:
+                if (byte == FLAG) state = STOP_;
+                else state = START; 
+                break;
+            default:
+                state = START;
+                break;
+        }
+    }
+    return infoFrame;
+}
+
+
 int llwrite(int fd, const unsigned char *buf, int bufSize) {
     // Tamanho inicial da trama: FLAG (1) + A1 (1) + Control (1) + BCC1 (1) + Dados (bufSize) + BCC2 (1) + FLAG (1)
     int totalSize = 6 + bufSize; 
@@ -265,52 +321,51 @@ int llwrite(int fd, const unsigned char *buf, int bufSize) {
 
     int j = 4; // Começa após A, C e BCC1
     for (int i = 0; i < bufSize; i++) {
-        addByteStuffing(&frame, &totalSize, buf[i], &j);
+        byteStuffingTechnique(&frame, &totalSize, buf[i], &j);
     }
-    addByteStuffing(&frame, &totalSize, BCC2, &j);
+
+    byteStuffingTechnique(&frame, &totalSize, BCC2, &j);
+
+    frame[j++] = BCC2;
     frame[j++] = FLAG;
 
-    int currentTransmission = 0;
-    int rejected = 0, accepted = 0;
+    int transmission = 0;
+    int check_rej = 0, check_rr = 0;
 
-    while (currentTransmission < max_retransmissions) { 
+    while (transmission < max_retransmissions) { 
         alarmEnabled = FALSE;   
         alarm(timeout);       
-        rejected = 0;
-        accepted = 0;
+        check_rej = 0;
+        check_rr = 0;
 
-        // Tentativa de envio da trama
-        while (!alarmEnabled && !rejected && !accepted) {
-            write(fd, frame, start);
 
-            unsigned char response = readControlFrame(fd);
+         while (!alarmEnabled && !check_rej && !check_rr) {
+            write(fd, frame, j);
 
-            if (!response) continue;
+            unsigned char res = infoFrameStateMachine(fd); 
 
-            // Verificar se houve rejeição ou aceitação
-            if (response == 0x81 || response == 0x81) {  // C_REJ(0) ou C_REJ(1)
-                rejected = 1;
-            } else if (response == 0x85 || response == 0x85) {  // C_RR(0) ou C_RJ
-                        } else if (response == 0x85 || response == 0xC5) {  // C_RR(0) ou C_RR(1)
-                accepted = 1;
-                tramaTx = (tramaTx + 1) % 2;  // Alternar o número de sequência para a próxima trama
+            if (!res) {
+                continue;
+            } else if (res == REJ(0) || res == REJ(1)) { 
+                check_rej = 1;
+            } else if (res == RR(0) || res == RR(1)) { 
+                check_rr = 1;
+                send = (send + 1) % 2; 
             } else {
-                continue;  // Resposta inesperada, ignorar e esperar por outra resposta
+                continue;
             }
         }
 
-        if (accepted) break;  // Se a trama foi aceita, sair do loop de retransmissões
-        currentTransmission++;  // Incrementar o número de transmissões feitas
+        if (check_rr) 
+            break; 
+        transmission++;  
     }
 
-    // Limpar a memória alocada para a trama
     free(frame);
 
-    // Se aceito, retorna o tamanho da trama escrita
-    if (accepted) {
-        return frameSize;
+    if (check_rr) {
+        return totalSize;
     } else {
-        // Se não foi aceito após o número máximo de retransmissões, fechar a conexão
         llclose(fd);
         return -1;
     }
