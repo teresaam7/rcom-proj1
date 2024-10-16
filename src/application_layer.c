@@ -92,7 +92,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
             int packetSize = -1;
 
-            while ((packetSize = llread(fd, packet)) < 0);
+            while ((packetSize = llread(packet)) < 0);
             if (packetSize < 0) {
                 fprintf(stderr, "Error reading control packet\n");
                 free(packet);
@@ -114,7 +114,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             }
 
             while (1) {
-                while ((packetSize = llread(fd, packet)) < 0);
+                while ((packetSize = llread(packet)) < 0);
                 if (packetSize == 0) {
                     break;  
                 }

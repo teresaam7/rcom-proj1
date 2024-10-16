@@ -336,7 +336,7 @@ unsigned char infoFrameStateMachine(int fd) {
     return infoFrame;
 }
 
-int llwrite(int fd, const unsigned char *buf, int bufSize) {
+int llwrite(const unsigned char *buf, int bufSize) {
     int totalSize = 6 + bufSize; 
     unsigned char *frame = (unsigned char *) malloc(totalSize);
 
@@ -440,7 +440,7 @@ int processingData(int fd, unsigned char *packet, unsigned char byte, int *i, un
     }
 }
 
-int llread(int fd, unsigned char *packet) {
+int llread(unsigned char *packet) {
     unsigned char byte, infoFrame, bcc2;
     int i = 0;
     LLState state = START;
