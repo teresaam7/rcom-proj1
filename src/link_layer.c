@@ -9,13 +9,14 @@
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
 
-
 int alarmEnabled = FALSE;
 int alarmCount = 0;
 int max_retransmissions = 0;
 int timeout = 0;
 
-unsigned char tramaTx = 0;
+unsigned char send = 0;
+unsigned char receive = 1;
+
 extern int fd;
 
 typedef enum
@@ -62,6 +63,14 @@ typedef struct {
 
 #define INFO0    0x00 // Information frame number 0
 #define INFO1    0x80 // Information frame number 1
+
+// Nr- Número de sequências de receção
+// Ns- Número de sequências de transmissão
+
+#define RR(Nr) ((Nr == 0) ? 0x05 : 0x85)
+#define REJ(Nr) ((Nr == 0) ? 0x01 : 0x81)
+#define I(Ns)  ((Ns == 0) ? 0x00 : 0x40)
+
 
 /*-----------------------------------------------------------------------*/
 ////////////////////////////////////////////////
@@ -233,6 +242,14 @@ int llopen(LinkLayer connectionParameters){
     /*a state machine do reciever tem de estar preparada para receber um SET e a do Transmiter tem de estar pronto para receber UA. 
     Isto no inicio. se receber um set no meio das information frames é pq algo deu errado*/
 
+unsigned char calculateBCC2(const unsigned char *buf, int bufSize) {
+    unsigned char BCC2 = buf[0];
+    for (int i = 1; i < bufSize; i++) {
+        BCC2 ^= buf[i];
+    }
+    return BCC2;
+}
+
 int llwrite(int fd, const unsigned char *buf, int bufSize) {
     // Tamanho inicial da trama: FLAG (1) + A1 (1) + Control (1) + BCC1 (1) + Dados (bufSize) + BCC2 (1) + FLAG (1)
     int totalSize = 6 + bufSize; 
@@ -240,41 +257,19 @@ int llwrite(int fd, const unsigned char *buf, int bufSize) {
 
     frame[0] = FLAG;                
     frame[1] = A1;                
-    frame[2] = (tramaTx == 0) ? 0x00 : 0x80; // Campo de controle (C) para número de sequência N(s)
-    frame[3] = frame[1] ^ frame[2];   // BCC1 (XOR entre A e C)
+    frame[2] = I(send); 
+    frame[3] = frame[1] ^ frame[2];  
 
-    // BCC2 (XOR entre todos os bytes dos dados)
-    unsigned char BCC2 = buf[0];
-    for (int i = 1; i < bufSize; i++) {
-        BCC2 ^= buf[i];
-    }
+    memcpy(frame + 4, buf, bufSize);
+    unsigned char BCC2 = calculateBCC2(buf, bufSize);
 
-    // Copiando os dados da buffer na trama
-    int start = 4; // índice para onde começa a copiar os dados
+    int j = 4; // Começa após A, C e BCC1
     for (int i = 0; i < bufSize; i++) {
-        // Verificação de byte stuffing (substituir FLAG e ESC)
-        if (buf[i] == FLAG || buf[i] == ESC) {
-            frame = realloc(frame, ++totalSize); // Aumentar o tamanho da trama
-            frame[start++] = ESC;                    // Incluir ESC
-            frame[start++] = buf[i] ^ 0x20;          // XOR com 0x20 (escapar o byte especial)
-        } else {
-            frame[start++] = buf[i];                 
-        }
+        addByteStuffing(&frame, &totalSize, buf[i], &j);
     }
-
-    // Aplicando byte stuffing no BCC2, se necessário
-    if (BCC2 == FLAG || BCC2 == ESC) {
-        frame = realloc(frame, ++frameSize);
-        frame[j++] = ESC;
-        frame[j++] = BCC2 ^ 0x20;  // XOR com 0x20 para escapar
-    } else {
-        frame[j++] = BCC2;         // BCC2 normal
-    }
-
-    // FLAG final
+    addByteStuffing(&frame, &totalSize, BCC2, &j);
     frame[j++] = FLAG;
 
-    // Variáveis para controlar transmissões e estado de aceitação/rejeição
     int currentTransmission = 0;
     int rejected = 0, accepted = 0;
 
@@ -286,13 +281,10 @@ int llwrite(int fd, const unsigned char *buf, int bufSize) {
 
         // Tentativa de envio da trama
         while (!alarmEnabled && !rejected && !accepted) {
-            // Enviar a trama
-            write(fd, frame, j);
+            write(fd, frame, start);
 
-            // Ler a resposta do receptor
             unsigned char response = readControlFrame(fd);
 
-            // Ignorar resposta vazia
             if (!response) continue;
 
             // Verificar se houve rejeição ou aceitação

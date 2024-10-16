@@ -22,6 +22,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         perror("Connection error\n");
         exit(-1);
     }
+    
 //LlTx abre o ficheiro lê o que tem dentro e separa os dados em packets e dps manda os packets para o Rx  
 
     switch(linkLayer.role) {
