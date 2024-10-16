@@ -27,7 +27,9 @@ typedef enum
    C_RCV,
    BCC1_OK,
    BCC2_OK,
-   STOP_
+   STOP_,
+   DETECTED_ESC,
+   PROCESSING
 } LLState;
 
 typedef struct {
@@ -305,7 +307,6 @@ unsigned char infoFrameStateMachine(int fd) {
     return infoFrame;
 }
 
-
 int llwrite(int fd, const unsigned char *buf, int bufSize) {
     // Tamanho inicial da trama: FLAG (1) + A1 (1) + Control (1) + BCC1 (1) + Dados (bufSize) + BCC2 (1) + FLAG (1)
     int totalSize = 6 + bufSize; 
@@ -377,14 +378,86 @@ int llwrite(int fd, const unsigned char *buf, int bufSize) {
 ////////////////////////////////////////////////
 // LLREAD
 ////////////////////////////////////////////////
-int llread(unsigned char *packet)
-{
-    // TODO
-    //ler o pacote
-    //SLIDE 23
+
+int processingData(int fd, unsigned char *packet, unsigned char byte, int *i, unsigned char *bcc2) {
+    if (byte == ESC) {
+        return DETECTED_ESC; 
+    } else if (byte == FLAG) {
+        *bcc2 = packet[*i - 1]; 
+        (*i)--; 
+        packet[*i] = '\0'; 
+
+        unsigned char bcc2_res = calculateBCC2(packet, *i);
+
+        if (*bcc2 == bcc2_res) {
+            return STOP_; 
+        } else {
+            printf("Error: retransmission\n");
+            sendSupFrame(fd, A2, REJ(receive));
+            return -1; 
+        }
+    } else {
+        packet[*i] = byte; 
+        (*i)++; 
+        return PROCESSING; 
+    }
+}
 
 
-    return 0;
+int llread(int fd, unsigned char *packet) {
+    unsigned char byte, infoFrame, bcc2;
+    int i = 0;
+    LLState state = START;
+
+    while (state != STOP_) {  
+        if (read(fd, &byte, 1) > 0) {
+            switch (state) {
+                case START:
+                    if (byte == FLAG) state = FLAG_RCV; 
+                    break;
+
+                case FLAG_RCV:
+                    if (byte == A1) state = A_RCV; 
+                    else if (byte != FLAG) state = START; 
+                    break;
+
+                case A_RCV:
+                    if (byte == I(0) || byte == I(1)) {
+                        state = C_RCV; 
+                        infoFrame = byte; 
+                    } else if (byte == FLAG) state = FLAG_RCV; 
+                    else if (byte == DISC) {
+                        sendSupFrame(fd, A2, DISC);
+                        return 0; 
+                    } else state = START; 
+                    break;
+
+                case C_RCV:
+                    if (byte == (A1 ^ infoFrame) || byte == (A2 ^ infoFrame)) {
+                        state = PROCESSING; 
+                    } else if (byte == FLAG) state = FLAG_RCV; 
+                    else state = START; 
+                    break;
+
+                case PROCESSING:
+                    state = processingData(fd, packet, byte, &i, &bcc2); 
+                    break;
+
+                case DETECTED_ESC:
+                    state = PROCESSING; 
+                    if (byte == ESC || byte == FLAG) packet[i++] = byte; 
+                    else {
+                        packet[i++] = ESC; 
+                        packet[i++] = byte; 
+                    }
+                    break;
+
+                default:
+                    break; 
+            }
+        }
+    }
+    return -1; 
 }
 
 ////////////////////////////////////////////////
