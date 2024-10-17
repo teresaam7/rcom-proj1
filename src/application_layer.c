@@ -52,7 +52,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 perror("Error in ctrlPacket \n");
                 exit(-1);
             }
-
+            printf("APP CTRL PACKET SENT \n");
             int dataPacketCount = 0;
             int nDataPackets = (fileSize + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE; 
 
@@ -69,6 +69,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                     free(data); 
                     exit(-1);
                 }
+                printf("APP DATA PACKET SENT \n");
                 dataPacketCount++;
                 free(data); 
             }
@@ -78,7 +79,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 perror("Error in final ctrlPacket \n");
                 exit(-1);
             }
-
+            printf("APP CTRL PACKET SENT \n");
             fclose(file); 
             if (llclose(fd) < 0) {
                 perror("Closing error\n");
@@ -98,6 +99,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
             // Recebe o primeiro pacote de controle (início da transmissão)
             while ((packetSize = llread(packet)) < 0);
+            printf( "APP READ CTRL PACKET \n");
             if (packetSize < 5) {  // Tamanho mínimo do pacote de controle
                 fprintf(stderr, "Error reading control packet\n");
                 free(packet);
@@ -179,7 +181,11 @@ unsigned char* createCtrlPacket(int c, int* fileSize, const char *filename) {
     packet[i++] = 1;  // T2 (Filename Type)
     packet[i++] = fileNameLength;  // L2 (Filename Length)
     memcpy(&packet[i], filename, fileNameLength);  // V2 (Filename Value)
-    
+    printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    for(int j = 0; j < i; j++){
+        printf("%d", packet[j]);
+        printf("\n");
+    }
     return packet;
 }
 
@@ -193,7 +199,8 @@ unsigned char* createDataPacket(int sequence, int dataSize, unsigned char* data)
     packet[0] = 2; 
     packet[1] = sequence; 
     packet[2] = (dataSize >> 8) & 0xFF; 
-    packet[3] = dataSize & 0xFF;        
+    packet[3] = dataSize & 0xFF;
+    printf(" %d DATASIZE/////////////////////\n", dataSize);   
 
     memcpy(packet + 4, data, dataSize); 
 

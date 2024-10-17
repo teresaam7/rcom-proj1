@@ -198,8 +198,8 @@ int llopen(LinkLayer connectionParameters){
     if (fd < 0) {
         return -1;
     }
-    int max_retransmissions = connectionParameters.nRetransmissions;
-    int timeout = connectionParameters.timeout;
+    max_retransmissions = connectionParameters.nRetransmissions;
+    timeout = connectionParameters.timeout;
 
     switch (connectionParameters.role) {
         case LlTx: {
@@ -261,21 +261,22 @@ void byteStuffingTechnique(unsigned char **frame, int *frameSize, unsigned char 
 }
 
 unsigned char infoFrameStateMachine(int fd) {
-    unsigned char byte;
+    //unsigned char byte;
     unsigned char infoFrame = 0;
     LLState state = START;
 
     printf("Starting infoFrameStateMachine...\n");
-
+    unsigned char buf[BUF_SIZE] = {0};
     while (state != STOP_ && !alarmEnabled) {
-        int bytesRead = read(fd, &byte, 1);
+        int bytesRead = read(fd, buf, BUF_SIZE);
         
         if (bytesRead <= 0) {
             continue;  
         }
 
-        printf("Byte read: 0x%02X (State: %d)\n", byte, state);
-
+        for (int i = 0; i < bytesRead; i++) {
+            unsigned char byte = buf[i];
+            printf("Byte read: 0x%02X (State: %d)\n", byte, state);
         switch (state) {
             case START:
                 if (byte == FLAG) {
@@ -302,7 +303,7 @@ unsigned char infoFrameStateMachine(int fd) {
                     printf("State transitioned to FLAG_RCV.\n");
                 } else {
                     state = START;
-                    printf("Invalid byte received. Transitioned back to START.\n");
+                    printf("Invalid byte received. Transitioned back to START1.\n");
                 }
                 break;
             case C_RCV:
@@ -332,7 +333,7 @@ unsigned char infoFrameStateMachine(int fd) {
                 break;
         }
     }
-
+    }
     return infoFrame;
 }
 
@@ -355,7 +356,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     byteStuffingTechnique(&frame, &totalSize, BCC2, &j);
 
-    frame[j++] = BCC2;
+    //frame[j++] = BCC2;
     frame[j++] = FLAG;
 
     int transmission = 0;
@@ -363,6 +364,10 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     printf("Starting transmission with a maximum of %d attempts...\n", max_retransmissions);
 
+    for(int i = 0; i<j; i++){
+        printf("ssssssssss 0x%02X", frame[i]);
+        printf("\n");
+    }
     while (transmission < max_retransmissions) { 
         alarmEnabled = FALSE; 
         printf("Olaaa \n");  
@@ -447,11 +452,12 @@ int llread(unsigned char *packet) {
     unsigned char byte, infoFrame, bcc2;
     int i = 0;
     LLState state = START;
-
+    int bytesRead = -1;
     printf("Starting llread...\n");
 
     while (state != STOP_) {  
         if (read(fd, &byte, 1) > 0) {
+            bytesRead ++;
             printf("Byte read: 0x%02X (State: %d)\n", byte, state);
             switch (state) {
                 case START:
@@ -522,7 +528,7 @@ int llread(unsigned char *packet) {
             }
         }
     }
-    return -1; 
+    return bytesRead; 
 }
 
 ////////////////////////////////////////////////
