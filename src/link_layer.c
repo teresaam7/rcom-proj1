@@ -364,12 +364,15 @@ int llwrite(const unsigned char *buf, int bufSize) {
     printf("Starting transmission with a maximum of %d attempts...\n", max_retransmissions);
 
     while (transmission < max_retransmissions) { 
-        alarmEnabled = FALSE;   
+        alarmEnabled = FALSE; 
+        printf("Olaaa \n");  
         alarm(timeout);       
         check_rej = 0;
         check_rr = 0;
+        printf("Oliii \n");  
 
         while (!alarmEnabled && !check_rej && !check_rr) {
+            printf("Adeuss \n");  
             printf("Writing frame to fd...\n");
             write(fd, frame, j);
 
