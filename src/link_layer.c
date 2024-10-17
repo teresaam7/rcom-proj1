@@ -69,9 +69,9 @@ typedef struct {
 // Nr- Número de sequências de receção
 // Ns- Número de sequências de transmissão
 
-#define RR(Nr) ((Nr == 0) ? 0x05 : 0x85)
-#define REJ(Nr) ((Nr == 0) ? 0x01 : 0x81)
-#define I(Ns)  ((Ns == 0) ? 0x00 : 0x40)
+#define RR(Nr) ((Nr == 0) ? RR0 : RR1)
+#define REJ(Nr) ((Nr == 0) ? REJ0 : REJ1)
+#define I(Ns)  ((Ns == 0) ? INFO0 : INFO1)
 
 
 /*-----------------------------------------------------------------------*/
@@ -434,6 +434,7 @@ int processingData(int fd, unsigned char *packet, unsigned char byte, int *i, un
 
         if (*bcc2 == bcc2_res) {
             printf("BCC2 match. Transitioning to STOP_.\n");
+            sendSupFrame(fd, A2, RR(receive));
             return STOP_; 
         } else {
             printf("Error: retransmission required.\n");

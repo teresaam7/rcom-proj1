@@ -40,7 +40,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 exit(-1);
             }
             
-            // Obter o tamanho do arquivo
             fseek(file, 0L, SEEK_END); // https://stackoverflow.com/questions/238603/how-can-i-get-a-files-size-in-c
             int fileSize = ftell(file); // Get file size
             fseek(file, 0L, SEEK_SET); // Reset file position to beginning for reading
@@ -52,11 +51,13 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 perror("Error in ctrlPacket \n");
                 exit(-1);
             }
-            printf("APP CTRL PACKET SENT \n");
+            printf("APP CTRL PACKET inicial SENT \n");
             int dataPacketCount = 0;
             int nDataPackets = (fileSize + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE; 
-
+            printf("file size %d \n", fileSize);
+            printf("NUMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMDATAPACKETS %d \n",nDataPackets);
             for (int i = 0; i < nDataPackets; ++i) {
+                printf("WE HEREE??\n");
                 int dataSize = (i == nDataPackets - 1) ? (fileSize % MAX_PAYLOAD_SIZE) : MAX_PAYLOAD_SIZE;
                 if (dataSize == 0) dataSize = MAX_PAYLOAD_SIZE;
 
@@ -79,7 +80,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 perror("Error in final ctrlPacket \n");
                 exit(-1);
             }
-            printf("APP CTRL PACKET SENT \n");
+            printf("APP CTRL PACKET final SENT \n");
             fclose(file); 
             if (llclose(fd) < 0) {
                 perror("Closing error\n");
@@ -114,8 +115,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 exit(EXIT_FAILURE);
             }
 
-       
-            FILE *newFile = fopen((char *)fileName, "wb+");
+            FILE *newFile = fopen("penguin_test.gif" , "wb+");    // for testing
+            //FILE *newFile = fopen((char *)fileName, "wb+");    // how it should be
             if (newFile == NULL) {
                 perror("Error opening file for writing");
                 free(packet); 
@@ -130,11 +131,13 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 }
 
                 if (packet[0] == 2) {  // Tipo de pacote de dados
+                printf( "APP READ DATA PACKET \n");
                     unsigned char *buffer = (unsigned char *)malloc(packetSize - 4);
                     memcpy(buffer, packet + 4, packetSize - 4); // Extrai os dados
                     fwrite(buffer, sizeof(unsigned char), packetSize - 4, newFile); 
                     free(buffer); 
                 }
+                
             }
             
             fclose(newFile);
@@ -181,9 +184,9 @@ unsigned char* createCtrlPacket(int c, int* fileSize, const char *filename) {
     packet[i++] = 1;  // T2 (Filename Type)
     packet[i++] = fileNameLength;  // L2 (Filename Length)
     memcpy(&packet[i], filename, fileNameLength);  // V2 (Filename Value)
-    printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    printf("aquii");
     for(int j = 0; j < i; j++){
-        printf("%d", packet[j]);
+        printf("%x", packet[j]);
         printf("\n");
     }
     return packet;
