@@ -559,7 +559,7 @@ int llclose(int showStatistics)
         return -1; 
     }
 
-    sendSupFrame(showStatistics, A1, UA); 
+    sendSupFrame(fd, A1, UA); 
     printf("CLOSED WITH SUCCESS.\n");
 
     int clstat = closeSerialPort();
