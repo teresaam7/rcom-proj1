@@ -454,87 +454,118 @@ int processingData(int fd, unsigned char *packet, unsigned char byte, int *i, un
 }
 
 int llread(unsigned char *packet) {
-    unsigned char byte, infoFrame, bcc2;
-    int i = 0;
+    unsigned char byte, bcc2;
+    int i = 0;  // Índice para o buffer de dados do pacote
     LLState state = START;
-    int bytesRead = -1;
-    printf("Starting llread...\n");
+    int bytesRead = 0;
+    unsigned char infoFrame;
+    int stop = 0;  // Variável para saber se a leitura terminou
 
-    while (state != STOP_) {  
+    printf("Iniciando llread...\n");
+
+    while (!stop) {  // Vamos garantir que lemos até o final
         if (read(fd, &byte, 1) > 0) {
-            bytesRead ++;
-            printf("Byte read: 0x%02X (State: %d)\n", byte, state);
+            printf("Byte recebido: 0x%02X\n", byte);  // Depuração para cada byte recebido
+            bytesRead++;
+            
             switch (state) {
                 case START:
+                    printf("Estado: START\n");
                     if (byte == FLAG) {
-                        state = FLAG_RCV; 
-                        printf("State transitioned to FLAG_RCV.\n");
+                        state = FLAG_RCV;
+                        printf("FLAG detectada, indo para FLAG_RCV\n");
                     }
                     break;
 
                 case FLAG_RCV:
+                    printf("Estado: FLAG_RCV\n");
                     if (byte == A1) {
-                        state = A_RCV; 
-                        printf("State transitioned to A_RCV.\n");
+                        state = A_RCV;
+                        printf("A1 detectado, indo para A_RCV\n");
                     } else if (byte != FLAG) {
-                        state = START; 
-                        printf("Invalid byte received. Transitioned back to START.\n");
+                        state = START;
+                        printf("Byte diferente de FLAG e A1, voltando para START\n");
                     }
                     break;
 
                 case A_RCV:
+                    printf("Estado: A_RCV\n");
                     if (byte == I(0) || byte == I(1)) {
-                        state = C_RCV; 
-                        infoFrame = byte; 
-                        printf("State transitioned to C_RCV with infoFrame: 0x%02X.\n", infoFrame);
+                        infoFrame = byte;  // Captura o número de sequência do quadro
+                        state = C_RCV;
+                        printf("Frame de informação detectado: 0x%02X, indo para C_RCV\n", byte);
                     } else if (byte == FLAG) {
-                        state = FLAG_RCV; 
-                        printf("State transitioned to FLAG_RCV.\n");
-                    } else if (byte == DISC) {
-                        sendSupFrame(fd, A2, DISC);
-                        printf("DISC received. Closing connection.\n");
-                        return 0; 
-                    } else {
-                        state = START; 
-                        printf("Invalid byte received. Transitioned back to START.\n");
+                        state = FLAG_RCV;
+                        printf("FLAG detectada, indo para FLAG_RCV\n");
                     }
                     break;
 
                 case C_RCV:
+                    printf("Estado: C_RCV\n");
                     if (byte == (A1 ^ infoFrame)) {
-                        state = PROCESSING; 
-                        printf("State transitioned to PROCESSING.\n");
-                    } else if (byte == FLAG) {
-                        state = FLAG_RCV; 
-                        printf("State transitioned to FLAG_RCV.\n");
+                        state = PROCESSING;
+                        printf("BCC1 verificado com sucesso, indo para PROCESSING\n");
                     } else {
-                        state = START; 
-                        printf("Invalid byte received. Transitioned back to START.\n");
+                        state = START;
+                        printf("Erro no BCC1, voltando para START\n");
                     }
                     break;
 
                 case PROCESSING:
-                    state = processingData(fd, packet, byte, &i, &bcc2); 
+                    printf("Estado: PROCESSING\n");
+                    if (byte == FLAG) {
+                        printf("FLAG detectada, fim do quadro de dados\n");
+                        bcc2 = packet[i - 1];  // BCC2 é o último byte antes do FLAG
+                        i--;  // Excluir o BCC2 do comprimento do pacote
+                        printf("Verificando BCC2...\n");
+
+                        unsigned char calculatedBCC2 = calculateBCC2(packet, i);
+                        if (bcc2 == calculatedBCC2) {
+                            printf("BCC2 verificado com sucesso. Enviando RR.\n");
+                            sendSupFrame(fd, A2, RR(infoFrame));  // Enviar ACK
+                            state = STOP_;  // Marcar o estado de fim
+                            stop = 1;  // Indicar que recebemos o pacote completo
+                        } else {
+                            printf("Erro no BCC2, enviando REJ.\n");
+                            sendSupFrame(fd, A2, REJ(infoFrame));  // Rejeitar pacote
+                            i = 0;  // Resetar o índice do buffer de pacote
+                        }
+                    } else if (byte == ESC) {
+                        printf("ESC detectado, indo para DETECTED_ESC\n");
+                        state = DETECTED_ESC;
+                    } else {
+                        printf("Byte de dados armazenado: 0x%02X\n", byte);
+                        packet[i++] = byte;  // Armazenar byte de dados
+                    }
                     break;
 
                 case DETECTED_ESC:
-                    state = PROCESSING; 
+                    printf("Estado: DETECTED_ESC\n");
                     if (byte == ESC || byte == FLAG) {
-                        packet[i++] = byte; 
+                        printf("Byte escapado detectado: 0x%02X\n", byte);
+                        packet[i++] = byte;
                     } else {
-                        packet[i++] = ESC; 
-                        packet[i++] = byte; 
+                        printf("Byte escapado decodificado: 0x%02X\n", byte ^ 0x20);
+                        packet[i++] = byte ^ 0x20;  // Desfazer byte stuffing
                     }
-                    printf("ESC processed, current index: %d\n", i);
+                    state = PROCESSING;  // Continuar processando
                     break;
 
                 default:
-                    break; 
+                    break;
             }
+        } else {
+            printf("Erro na leitura. Enviando REJ.\n");
+            sendSupFrame(fd, A2, REJ(infoFrame));  // Solicitar retransmissão
+            return -1;  // Erro de leitura, abortar
         }
     }
-    return bytesRead; 
+
+    printf("Pacote recebido com sucesso. Tamanho: %d bytes\n", i);
+    return i;  // Retornar o número de bytes lidos (tamanho do pacote)
 }
+
+
 
 ////////////////////////////////////////////////
 // LLCLOSE
