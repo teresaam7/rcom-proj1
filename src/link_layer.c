@@ -116,7 +116,10 @@ LLState SetUaStateMachine (int fd, unsigned char expectedAddr, unsigned char exp
     unsigned char buf[BUF_SIZE] = {0};
     LLState state = START;
     while (state != STOP_){ 
-        int bytes = read(fd, buf, BUF_SIZE);
+        int size = BUF_SIZE;
+        if (expectedCtrl == DISC) size = 1;
+        int bytes = read(fd, buf, size);
+        if (expectedCtrl == DISC) printf("RRRRRRRRRRRRRR \n"); 
         if (bytes < 0) {
             perror("Error reading from serial port");
             return START;
@@ -454,116 +457,118 @@ int processingData(int fd, unsigned char *packet, unsigned char byte, int *i, un
 }
 
 int llread(unsigned char *packet) {
-    unsigned char byte, bcc2;
-    int i = 0;  
-    LLState state = START;
-    int bytesRead = 0;
-    unsigned char infoFrame;
-    int stop = 0; 
+    unsigned char byte, bcc2;  
+    int i = 0;                 // Index for the packet buffer
+    LLState state = START;    
+    int bytesRead = 0;         
+    unsigned char infoFrame;  
+    int stop = 0;              // Flag to determine when to stop reading
 
-    printf("Iniciando llread...\n");
+    printf("Starting llread...\n");
 
-    while (!stop || state != STOP_) {  
+    while (!stop || state != STOP_) { 
         if (read(fd, &byte, 1) > 0) {
-            printf("Byte recebido: 0x%02X\n", byte);
+            printf("Byte received: 0x%02X\n", byte);
             bytesRead++;
-            
+        
             switch (state) {
                 case START:
-                    printf("Estado: START\n");
+                    printf("State: START\n");
                     if (byte == FLAG) {
                         state = FLAG_RCV;
-                        printf("FLAG detectada, indo para FLAG_RCV\n");
+                        printf("FLAG detected, transitioning to FLAG_RCV\n");
                     }
                     break;
 
                 case FLAG_RCV:
-                    printf("Estado: FLAG_RCV\n");
+                    printf("State: FLAG_RCV\n");
                     if (byte == A1) {
                         state = A_RCV;
-                        printf("A1 detectado, indo para A_RCV\n");
+                        printf("A1 detected, transitioning to A_RCV\n");
                     } else if (byte != FLAG) {
                         state = START;
-                        printf("Byte diferente de FLAG e A1, voltando para START\n");
+                        printf("Byte different from FLAG and A1, returning to START\n");
                     }
                     break;
 
                 case A_RCV:
-                    printf("Estado: A_RCV\n");
+                    printf("State: A_RCV\n");
                     if (byte == I(0) || byte == I(1)) {
                         infoFrame = byte; 
                         state = C_RCV;
-                        printf("Frame de informação detectado: 0x%02X, indo para C_RCV\n", byte);
+                        printf("Info frame detected: 0x%02X, transitioning to C_RCV\n", byte);
                     } else if (byte == FLAG) {
                         state = FLAG_RCV;
-                        printf("FLAG detectada, indo para FLAG_RCV\n");
+                        printf("FLAG detected, transitioning to FLAG_RCV\n");
                     }
                     break;
 
                 case C_RCV:
-                    printf("Estado: C_RCV\n");
+                    printf("State: C_RCV\n");
                     if (byte == (A1 ^ infoFrame)) {
                         state = PROCESSING;
-                        printf("BCC1 verificado com sucesso, indo para PROCESSING\n");
+                        printf("BCC1 verified successfully, transitioning to PROCESSING\n");
                     } else {
                         state = START;
-                        printf("Erro no BCC1, voltando para START\n");
+                        printf("Error in BCC1, returning to START\n");
                     }
                     break;
 
                 case PROCESSING:
-                    printf("Estado: PROCESSING\n");
+                    printf("State: PROCESSING\n");
                     if (byte == FLAG) {
-                        printf("FLAG detectada, fim do quadro de dados\n");
-                        bcc2 = packet[i - 1];  // BCC2 é o último byte antes do FLAG
-                        i--;  // Excluir o BCC2 do comprimento do pacote
-                        printf("Verificando BCC2...\n");
+                        printf("FLAG detected, end of data frame\n");
+                        bcc2 = packet[i - 1]; 
+                        i--; 
+                        printf("Checking BCC2...\n");
 
                         unsigned char calculatedBCC2 = calculateBCC2(packet, i);
                         if (bcc2 == calculatedBCC2) {
-                            printf("BCC2 verificado com sucesso. Enviando RR.\n");
+                            printf("BCC2 verified successfully. Sending RR.\n");
                             sendSupFrame(fd, A2, RR(infoFrame)); 
                             state = STOP_; 
-                            stop = 1;
+                            stop = 1;  
                         } else {
-                            printf("Erro no BCC2, enviando REJ.\n");
+                            printf("Error in BCC2, sending REJ.\n");
                             sendSupFrame(fd, A2, REJ(infoFrame));  
-                            i = 0;  
+                            i = 0; 
                         }
                     } else if (byte == ESC) {
-                        printf("ESC detectado, indo para DETECTED_ESC\n");
-                        state = DETECTED_ESC;
+                        printf("ESC detected, transitioning to DETECTED_ESC\n");
+                        state = DETECTED_ESC; 
                     } else {
-                        printf("Byte de dados armazenado: 0x%02X\n", byte);
-                        packet[i++] = byte;  
+                        printf("Data byte stored: 0x%02X\n", byte);
+                        packet[i++] = byte; 
                     }
                     break;
 
                 case DETECTED_ESC:
-                    printf("Estado: DETECTED_ESC\n");
+                    printf("State: DETECTED_ESC\n");
                     if (byte == ESC || byte == FLAG) {
-                        printf("Byte escapado detectado: 0x%02X\n", byte);
-                        packet[i++] = byte;
+                        printf("Escaped byte detected: 0x%02X\n", byte);
+                        packet[i++] = byte;  
                     } else {
-                        printf("Byte escapado decodificado: 0x%02X\n", byte ^ 0x20);
+                        printf("Escaped byte decoded: 0x%02X\n", byte ^ 0x20);
                         packet[i++] = byte ^ 0x20; 
                     }
                     state = PROCESSING;
                     break;
 
                 default:
-                    break;
+                    break; 
             }
         } else {
-            printf("Erro na leitura. Enviando REJ.\n");
+            printf("Read error. Sending REJ.\n");
             sendSupFrame(fd, A2, REJ(infoFrame)); 
-            return -1; 
+            return -1;  
         }
     }
 
-    printf("Pacote recebido com sucesso. Tamanho: %d bytes\n", i);
-    return i; 
+  
+    printf("Packet received successfully. Size: %d bytes\n", i);
+    return i;
 }
+
 
 
 
@@ -578,18 +583,13 @@ int llclose(int showStatistics)
     alarmCount = 0;                       
     alarmEnabled = FALSE;              
 
-    while (alarmCount < max_retransmissions) {
-        if (!alarmEnabled) {
-            sendSupFrame(fd, A1, DISC);  
-            alarm(timeout);             
-            alarmEnabled = TRUE;
-        }
+    while (max_retransmissions != 0 && state != STOP_) {
+        sendSupFrame(fd, A1, DISC);  
+        alarm(timeout);             
+        alarmEnabled = FALSE;
 
         state = SetUaStateMachine(fd, A2, DISC, BCC1(A2, DISC)); 
-        if (state == STOP_) {
-            alarm(0);  
-            break;
-        }
+        max_retransmissions--;
     }
 
     if (state != STOP_) {
