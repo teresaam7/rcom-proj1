@@ -55,7 +55,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             int dataPacketCount = 0;
             int nDataPackets = (fileSize + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE; 
             printf("file size %d \n", fileSize);
-            printf("NUMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMDATAPACKETS %d \n",nDataPackets);
+            printf("DATA PACKETS %d \n",nDataPackets);
             for (int i = 0; i < nDataPackets; ++i) {
                 printf("WE HEREE??\n");
                 int dataSize = (i == nDataPackets - 1) ? (fileSize % MAX_PAYLOAD_SIZE) : MAX_PAYLOAD_SIZE;

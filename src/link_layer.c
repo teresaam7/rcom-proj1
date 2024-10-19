@@ -73,6 +73,15 @@ typedef struct {
 #define REJ(Nr) ((Nr == 0) ? REJ0 : REJ1)
 #define I(Ns)  ((Ns == 0) ? INFO0 : INFO1)
 
+/*-----------------------------------------------------------------------*/
+// Function Prototypes
+void alarmHandler(int signal);
+int sendSupFrame(int fd, unsigned char addr, unsigned char ctrl);
+LLState SetUaStateMachine(int fd, unsigned char expectedAddr, unsigned char expectedCtrl, unsigned char expectedBCC);
+unsigned char calculateBCC2(const unsigned char *buf, int bufSize);
+void byteStuffingTechnique(unsigned char **frame, int *frameSize, unsigned char byte, int *j);
+unsigned char infoFrameStateMachine(int fd);
+int processingData(int fd, unsigned char *packet, unsigned char byte, int *i, unsigned char *bcc2);
 
 /*-----------------------------------------------------------------------*/
 ////////////////////////////////////////////////
@@ -107,7 +116,6 @@ LLState SetUaStateMachine (int fd, unsigned char expectedAddr, unsigned char exp
     unsigned char buf[BUF_SIZE] = {0};
     LLState state = START;
     while (state != STOP_){ 
-        if (expectedCtrl == DISC) printf("RRRRRRRRRRRRRR \n"); 
         int bytes = read(fd, buf, BUF_SIZE);
         if (bytes < 0) {
             perror("Error reading from serial port");
@@ -257,6 +265,7 @@ void byteStuffingTechnique(unsigned char **frame, int *frameSize, unsigned char 
     (*frame)[(*j)++] = byte;
 }
 
+
 unsigned char infoFrameStateMachine(int fd) {
     //unsigned char byte;
     unsigned char infoFrame = 0;
@@ -352,6 +361,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
     }
 
     byteStuffingTechnique(&frame, &totalSize, BCC2, &j);
+    
 
     //frame[j++] = BCC2;
     frame[j++] = FLAG;
@@ -362,19 +372,16 @@ int llwrite(const unsigned char *buf, int bufSize) {
     printf("Starting transmission with a maximum of %d attempts...\n", max_retransmissions);
 
     for(int i = 0; i<j; i++){
-        printf("ssssssssss 0x%02X", frame[i]);
+        printf(" 0x%02X", frame[i]);
         printf("\n");
     }
     while (transmission < max_retransmissions) { 
         alarmEnabled = FALSE; 
-        printf("Olaaa \n");  
         alarm(timeout);       
         check_rej = 0;
         check_rr = 0;
-        printf("Oliii \n");  
 
         while (!alarmEnabled && !check_rej && !check_rr) {
-            printf("Adeuss \n");  
             printf("Writing frame to fd...\n");
             write(fd, frame, j);
 
@@ -494,7 +501,7 @@ int llread(unsigned char *packet) {
                     break;
 
                 case C_RCV:
-                    if (byte == (A1 ^ infoFrame) || byte == (A2 ^ infoFrame)) {
+                    if (byte == (A1 ^ infoFrame)) {
                         state = PROCESSING; 
                         printf("State transitioned to PROCESSING.\n");
                     } else if (byte == FLAG) {
