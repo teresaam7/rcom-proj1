@@ -69,9 +69,9 @@ typedef struct {
 // Nr- Número de sequências de receção
 // Ns- Número de sequências de transmissão
 
-#define RR(Nr) ((Nr == 0) ? 0x05 : 0x85)
-#define REJ(Nr) ((Nr == 0) ? 0x01 : 0x81)
-#define I(Ns)  ((Ns == 0) ? 0x00 : 0x40)
+#define RR(Nr) ((Nr == 0) ? RR0 : RR1)
+#define REJ(Nr) ((Nr == 0) ? REJ0 : REJ1)
+#define I(Ns)  ((Ns == 0) ? INFO0 : INFO1)
 
 
 /*-----------------------------------------------------------------------*/
@@ -106,7 +106,8 @@ int sendSupFrame(int fd, unsigned char addr, unsigned char ctrl) {
 LLState SetUaStateMachine (int fd, unsigned char expectedAddr, unsigned char expectedCtrl, unsigned char expectedBCC) { //state machine to check and send Supervision and Unnumbered frames, SET and UA
     unsigned char buf[BUF_SIZE] = {0};
     LLState state = START;
-    while (state != STOP_){
+    while (state != STOP_){ 
+        if (expectedCtrl == DISC) printf("RRRRRRRRRRRRRR \n"); 
         int bytes = read(fd, buf, BUF_SIZE);
         if (bytes < 0) {
             perror("Error reading from serial port");
@@ -126,8 +127,6 @@ LLState SetUaStateMachine (int fd, unsigned char expectedAddr, unsigned char exp
                     if (byte == FLAG) {
                         state = FLAG_RCV;
                         printf("Transition to: FLAG_RCV\n");
-                    } else {
-                        printf("Byte 0x%02X does not match FLAG. Staying in START.\n", byte);
                     }
                     break;
 
@@ -135,12 +134,10 @@ LLState SetUaStateMachine (int fd, unsigned char expectedAddr, unsigned char exp
                     printf("State: FLAG_RCV\n");
                     if (byte == FLAG) {
                         printf("Received FLAG again, staying in FLAG_RCV\n");
+                        state = START;
                     } else if (byte == expectedAddr) {
                         state = A_RCV;
                         printf("Transition to: A_RCV (A byte received: 0x%02X)\n", byte);
-                    } else {
-                        state = START;
-                        printf("Unexpected byte (0x%02X), returning to START\n", byte);
                     }
                     break;
 
@@ -434,6 +431,7 @@ int processingData(int fd, unsigned char *packet, unsigned char byte, int *i, un
 
         if (*bcc2 == bcc2_res) {
             printf("BCC2 match. Transitioning to STOP_.\n");
+            sendSupFrame(fd, A2, RR(receive));
             return STOP_; 
         } else {
             printf("Error: retransmission required.\n");
@@ -537,35 +535,31 @@ int llread(unsigned char *packet) {
 
 int llclose(int showStatistics)
 {
+    LLState state = START;
     (void) signal(SIGALRM, alarmHandler);  
     alarmCount = 0;                       
-    alarmEnabled = FALSE;                 
+    alarmEnabled = FALSE;              
 
     while (alarmCount < max_retransmissions) {
-        sendSupFrame(showStatistics, A1, DISC); 
-        alarm(timeout);              
-        alarmEnabled = TRUE;
-
-        LLState state = SetUaStateMachine(showStatistics, A2, DISC, BCC1(A2, DISC)); 
-        if (state == STOP_) {  
-            alarm(0);          
-            alarmEnabled = FALSE;
-            break;
+        if (!alarmEnabled) {
+            sendSupFrame(fd, A1, DISC);  
+            alarm(timeout);             
+            alarmEnabled = TRUE;
         }
 
-        if (alarmEnabled) {
-            printf("TIMEOUT...\n");
-            alarmEnabled = FALSE; 
-            alarmCount++;
+        state = SetUaStateMachine(fd, A2, DISC, BCC1(A2, DISC)); 
+        if (state == STOP_) {
+            alarm(0);  
+            break;
         }
     }
 
-    if (alarmCount >= max_retransmissions) {
+    if (state != STOP_) {
         printf("FAILED AFTER RETRIES.\n");
         return -1; 
     }
 
-    sendSupFrame(showStatistics, A1, UA); 
+    sendSupFrame(fd, A1, UA); 
     printf("CLOSED WITH SUCCESS.\n");
 
     int clstat = closeSerialPort();
