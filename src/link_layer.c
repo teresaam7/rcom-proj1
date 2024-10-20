@@ -116,9 +116,7 @@ LLState SetUaStateMachine (int fd, unsigned char expectedAddr, unsigned char exp
     unsigned char buf[BUF_SIZE] = {0};
     LLState state = START;
     while (state != STOP_){ 
-        int size = BUF_SIZE;
-        if (expectedCtrl == DISC) size = 1;
-        int bytes = read(fd, buf, size);
+        int bytes = read(fd, buf, BUF_SIZE);
         if (expectedCtrl == DISC) printf("RRRRRRRRRRRRRR \n"); 
         if (bytes < 0) {
             perror("Error reading from serial port");
@@ -466,7 +464,7 @@ int llread(unsigned char *packet) {
 
     printf("Starting llread...\n");
 
-    while (!stop || state != STOP_) { 
+    while (!stop && state != STOP_) { 
         if (read(fd, &byte, 1) > 0) {
             printf("Byte received: 0x%02X\n", byte);
             bytesRead++;
@@ -500,7 +498,11 @@ int llread(unsigned char *packet) {
                     } else if (byte == FLAG) {
                         state = FLAG_RCV;
                         printf("FLAG detected, transitioning to FLAG_RCV\n");
+                    } else if (byte == DISC) {
+                        sendSupFrame(fd, A2, DISC);
+                        return 0;
                     }
+                    else state = START;
                     break;
 
                 case C_RCV:
@@ -508,6 +510,8 @@ int llread(unsigned char *packet) {
                     if (byte == (A1 ^ infoFrame)) {
                         state = PROCESSING;
                         printf("BCC1 verified successfully, transitioning to PROCESSING\n");
+                    } else if (byte == FLAG) {
+                        state = FLAG_RCV;
                     } else {
                         state = START;
                         printf("Error in BCC1, returning to START\n");
@@ -570,8 +574,6 @@ int llread(unsigned char *packet) {
 }
 
 
-
-
 ////////////////////////////////////////////////
 // LLCLOSE
 ////////////////////////////////////////////////
@@ -583,13 +585,19 @@ int llclose(int showStatistics)
     alarmCount = 0;                       
     alarmEnabled = FALSE;              
 
-    while (max_retransmissions != 0 && state != STOP_) {
-        sendSupFrame(fd, A1, DISC);  
-        alarm(timeout);             
-        alarmEnabled = FALSE;
+    while (alarmCount < max_retransmissions) {
+
+        if (!alarmEnabled) {
+            sendSupFrame(fd, A1, DISC);  
+            alarm(timeout);             
+            alarmEnabled = FALSE;
+        }
 
         state = SetUaStateMachine(fd, A2, DISC, BCC1(A2, DISC)); 
-        max_retransmissions--;
+        if (state == STOP_) {
+            alarm(0);  
+            break;
+        }
     }
 
     if (state != STOP_) {
