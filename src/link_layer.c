@@ -81,7 +81,6 @@ LLState SetUaStateMachine(int fd, unsigned char expectedAddr, unsigned char expe
 unsigned char calculateBCC2(const unsigned char *buf, int bufSize);
 void byteStuffingTechnique(unsigned char **frame, int *frameSize, unsigned char byte, int *j);
 unsigned char infoFrameStateMachine(int fd);
-int processingData(int fd, unsigned char *packet, unsigned char byte, int *i, unsigned char *bcc2);
 
 /*-----------------------------------------------------------------------*/
 ////////////////////////////////////////////////
@@ -117,7 +116,6 @@ LLState SetUaStateMachine (int fd, unsigned char expectedAddr, unsigned char exp
     LLState state = START;
     while (state != STOP_){ 
         int bytes = read(fd, buf, BUF_SIZE);
-        if (expectedCtrl == DISC) printf("RRRRRRRRRRRRRR \n"); 
         if (bytes < 0) {
             perror("Error reading from serial port");
             return START;
@@ -238,7 +236,6 @@ int llopen(LinkLayer connectionParameters){
     }
     return 1;
 }
-
 
 ////////////////////////////////////////////////
 // LLWRITE
@@ -363,8 +360,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     byteStuffingTechnique(&frame, &totalSize, BCC2, &j);
     
-
-    //frame[j++] = BCC2;
     frame[j++] = FLAG;
 
     int transmission = 0;
@@ -425,37 +420,27 @@ int llwrite(const unsigned char *buf, int bufSize) {
 // LLREAD
 ////////////////////////////////////////////////
 
-int processingData(int fd, unsigned char *packet, unsigned char byte, int *i, unsigned char *bcc2) {
-    if (byte == ESC) {
-        printf("ESC detected. Transitioning to DETECTED_ESC.\n");
-        return DETECTED_ESC; 
-    } else if (byte == FLAG) {
-        *bcc2 = packet[*i - 1]; 
-        (*i)--; 
-        packet[*i] = '\0'; 
+int processingData(unsigned char *packet, unsigned char byte, int *i, unsigned char infoFrame, LLState *state) {
+    unsigned char bcc2 = packet[*i - 1];
+    (*i)--; 
+    printf("Checking BCC2...\n");
 
-        unsigned char bcc2_res = calculateBCC2(packet, *i);
-        printf("Received FLAG. Comparing BCC2. Calculated BCC2: 0x%02X, Received BCC2: 0x%02X\n", bcc2_res, *bcc2);
-
-        if (*bcc2 == bcc2_res) {
-            printf("BCC2 match. Transitioning to STOP_.\n");
-            sendSupFrame(fd, A2, RR(receive));
-            return STOP_; 
-        } else {
-            printf("Error: retransmission required.\n");
-            sendSupFrame(fd, A2, REJ(receive));
-            return -1; 
-        }
+    unsigned char calculatedBCC2 = calculateBCC2(packet, *i);
+    if (bcc2 == calculatedBCC2) {
+        printf("BCC2 verified successfully. Sending RR.\n");
+        sendSupFrame(fd, A2, RR(infoFrame));
+        *state = STOP_; 
+        return 1; 
     } else {
-        packet[*i] = byte; 
-        (*i)++; 
-        printf("Processing byte: 0x%02X. Current index: %d\n", byte, *i);
-        return PROCESSING; 
+        printf("Error in BCC2, sending REJ.\n");
+        sendSupFrame(fd, A2, REJ(infoFrame));
+        *i = 0; 
+        return 0; 
     }
 }
 
 int llread(unsigned char *packet) {
-    unsigned char byte, bcc2;  
+    unsigned char byte;
     int i = 0;                 // Index for the packet buffer
     LLState state = START;    
     int bytesRead = 0;         
@@ -522,20 +507,8 @@ int llread(unsigned char *packet) {
                     printf("State: PROCESSING\n");
                     if (byte == FLAG) {
                         printf("FLAG detected, end of data frame\n");
-                        bcc2 = packet[i - 1]; 
-                        i--; 
-                        printf("Checking BCC2...\n");
-
-                        unsigned char calculatedBCC2 = calculateBCC2(packet, i);
-                        if (bcc2 == calculatedBCC2) {
-                            printf("BCC2 verified successfully. Sending RR.\n");
-                            sendSupFrame(fd, A2, RR(infoFrame)); 
-                            state = STOP_; 
-                            stop = 1;  
-                        } else {
-                            printf("Error in BCC2, sending REJ.\n");
-                            sendSupFrame(fd, A2, REJ(infoFrame));  
-                            i = 0; 
+                        if (processingData(packet, byte, &i, infoFrame, &state)) {
+                            stop = 1;  // Stop reading if the packet was processed successfully
                         }
                     } else if (byte == ESC) {
                         printf("ESC detected, transitioning to DETECTED_ESC\n");
@@ -568,11 +541,9 @@ int llread(unsigned char *packet) {
         }
     }
 
-  
     printf("Packet received successfully. Size: %d bytes\n", i);
-    return i;
+    return i; 
 }
-
 
 ////////////////////////////////////////////////
 // LLCLOSE
