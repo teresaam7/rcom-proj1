@@ -1,11 +1,14 @@
-// Application layer protocol implementation
-
 #include "application_layer.h"
 #include "link_layer.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 
 unsigned char* createCtrlPacket(int c, int* fileSize, const char *filename);
 unsigned char* createDataPacket(int sequence, int dataSize, unsigned char* data);
 unsigned char* parseCtrlPacket(unsigned char* packet, int size);
+unsigned short calculateChecksum(unsigned char* data, int length);
+int verifyChecksum(unsigned char* packet, int packetSize);
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
@@ -27,52 +30,47 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         exit(-1);
     }
 
-    // LlTx abre o ficheiro lê o que tem dentro e separa os dados em packets e dps manda os packets para o Rx  
     switch (linkLayer.role) {
-        case LlTx: {    ////////////////////(slide 27 para construir estes packets)/////////////////////////
-            // 1. cria um control packet no início para dizer que começou a transmissão (c=1)
-            // 2. cria data packets enquanto houver data. Acho que o tamanho destes data packets deve ser o MAX_PAYLOAD_SIZE definido no ll.h
-            // 3. cria um control packet no fim para dizer que acabou a transmissão (c=3) 
-
+        case LlTx: {
             FILE* file = fopen(filename, "rb");
             if (file == NULL) {
                 perror("File doesn't exist\n");
                 exit(-1);
             }
-            
-            fseek(file, 0L, SEEK_END); // https://stackoverflow.com/questions/238603/how-can-i-get-a-files-size-in-c
-            int fileSize = ftell(file); // Get file size
-            fseek(file, 0L, SEEK_SET); // Reset file position to beginning for reading
 
-            // Cria o pacote de controle de início
-            unsigned char* ctrlPacket = createCtrlPacket(1, &fileSize, filename); 
-            int ctrlPacketSize = 5 + sizeof(fileSize) + strlen(filename); // c + T1 + T2 + V1 + V2
+            fseek(file, 0L, SEEK_END);
+            int fileSize = ftell(file);
+            fseek(file, 0L, SEEK_SET);
+
+            unsigned char* ctrlPacket = createCtrlPacket(1, &fileSize, filename);
+            int ctrlPacketSize = 5 + sizeof(fileSize) + strlen(filename);
             if (llwrite(ctrlPacket, ctrlPacketSize) == -1) {
                 perror("Error in ctrlPacket \n");
                 exit(-1);
             }
             printf("APP CTRL PACKET inicial SENT \n");
+
             int dataPacketCount = 0;
-            int nDataPackets = (fileSize + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE; 
+            int nDataPackets = (fileSize + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE;
             printf("file size %d \n", fileSize);
-            printf("NUMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMDATAPACKETS %d \n",nDataPackets);
+            printf("DATA PACKETS %d \n", nDataPackets);
+
             for (int i = 0; i < nDataPackets; ++i) {
-                printf("WE HEREE??\n");
                 int dataSize = (i == nDataPackets - 1) ? (fileSize % MAX_PAYLOAD_SIZE) : MAX_PAYLOAD_SIZE;
                 if (dataSize == 0) dataSize = MAX_PAYLOAD_SIZE;
 
                 unsigned char* data = (unsigned char*) malloc(dataSize);
-                fread(data, sizeof(unsigned char), dataSize, file); 
+                fread(data, sizeof(unsigned char), dataSize, file);
 
                 unsigned char* dataPacket = createDataPacket(dataPacketCount, dataSize, data);
-                if (llwrite(dataPacket, 4 + dataSize) == -1) {
+                if (llwrite(dataPacket, 4 + dataSize + sizeof(unsigned short)) == -1) {
                     perror("Error in dataPacket \n");
-                    free(data); 
+                    free(data);
                     exit(-1);
                 }
                 printf("APP DATA PACKET SENT \n");
                 dataPacketCount++;
-                free(data); 
+                free(data);
             }
 
             unsigned char* endCtrlPacket = createCtrlPacket(3, &fileSize, filename);
@@ -81,7 +79,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 exit(-1);
             }
             printf("APP CTRL PACKET final SENT \n");
-            fclose(file); 
+            fclose(file);
+
             if (llclose(fd) < 0) {
                 perror("Closing error\n");
                 exit(-1);
@@ -90,7 +89,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
 
         case LlRx: {
-            unsigned char *packet = (unsigned char *)malloc(MAX_PAYLOAD_SIZE);
+            unsigned char *packet = (unsigned char *)malloc(MAX_PAYLOAD_SIZE + sizeof(unsigned short));
             if (packet == NULL) {
                 perror("Failed to allocate memory for packet");
                 exit(-1);
@@ -98,16 +97,14 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
             int packetSize = -1;
 
-            // Recebe o primeiro pacote de controle (início da transmissão)
             while ((packetSize = llread(packet)) < 0);
-            printf( "APP READ CTRL PACKET \n");
-            if (packetSize < 5) {  // Tamanho mínimo do pacote de controle
+            printf("APP READ CTRL PACKET \n");
+            if (packetSize < 5) {
                 fprintf(stderr, "Error reading control packet\n");
                 free(packet);
                 exit(EXIT_FAILURE);
             }
 
-            // Extrai o nome do arquivo do pacote de controle
             unsigned char* fileName = parseCtrlPacket(packet, packetSize);
             if (fileName == NULL) {
                 fprintf(stderr, "Failed to parse control packet\n");
@@ -115,34 +112,35 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 exit(EXIT_FAILURE);
             }
 
-            FILE *newFile = fopen("penguin_test.gif" , "wb+");    // for testing
+            FILE *newFile = fopen("penguin_test.gif", "wb+");
             //FILE *newFile = fopen((char *)fileName, "wb+");    // how it should be
             if (newFile == NULL) {
                 perror("Error opening file for writing");
-                free(packet); 
+                free(packet);
                 exit(EXIT_FAILURE);
             }
 
- 
             while (1) {
                 while ((packetSize = llread(packet)) < 0);
                 if (packetSize == 0) {
                     break; 
                 }
 
-                if (packet[0] == 2) {  // Tipo de pacote de dados
-                printf( "APP READ DATA PACKET \n");
-                    unsigned char *buffer = (unsigned char *)malloc(packetSize - 4);
-                    memcpy(buffer, packet + 4, packetSize - 4); // Extrai os dados
-                    fwrite(buffer, sizeof(unsigned char), packetSize - 4, newFile); 
-                    free(buffer); 
+                if (verifyChecksum(packet, packetSize)) {
+                    if (packet[0] == 2) { // Data packet type
+                        printf("APP READ DATA PACKET \n");
+                        unsigned char *buffer = (unsigned char *)malloc(packetSize - 4 - sizeof(unsigned short));
+                        memcpy(buffer, packet + 4, packetSize - 4 - sizeof(unsigned short));
+                        fwrite(buffer, sizeof(unsigned char), packetSize - 4 - sizeof(unsigned short), newFile);
+                        free(buffer);
+                    }
+                } else {
+                    printf("Checksum error, discarding packet.\n");
                 }
-                
             }
-            
+
             fclose(newFile);
             free(packet);
-
             break;
         }
     }
@@ -163,11 +161,10 @@ unsigned char* parseCtrlPacket(unsigned char* packet, int size) {
 }
 
 unsigned char* createCtrlPacket(int c, int* fileSize, const char *filename) {
-    //ver slide 27
     int fileNameLength = strlen(filename);
     int fileSizeLength = sizeof(*fileSize);
 
-    unsigned char* packet = (unsigned char*)malloc(5 + fileSizeLength + fileNameLength);
+    unsigned char* packet = (unsigned char*)malloc(5 + fileSizeLength + fileNameLength + sizeof(unsigned short));
     if (!packet) {
         perror("Failed to allocate memory for control packet");
         return NULL;
@@ -175,25 +172,27 @@ unsigned char* createCtrlPacket(int c, int* fileSize, const char *filename) {
 
     packet[0] = c;  
     int i = 1;
-    // Adiciona o campo TLV para o tamanho do arquivo (Type 0)
-    packet[i++] = 0;  // T1 (File Size Type)
-    packet[i++] = fileSizeLength;  // L1 (File Size Length)
-    memcpy(&packet[i], fileSize, fileSizeLength);  // V1 (File Size Value)
+
+    // (Type 0)
+    packet[i++] = 0;  
+    packet[i++] = fileSizeLength;  
+    memcpy(&packet[i], fileSize, fileSizeLength);  
     i += fileSizeLength;
-    // Adiciona o campo TLV para o nome do arquivo (Type 1)
-    packet[i++] = 1;  // T2 (Filename Type)
-    packet[i++] = fileNameLength;  // L2 (Filename Length)
-    memcpy(&packet[i], filename, fileNameLength);  // V2 (Filename Value)
-    printf("aquii");
-    for(int j = 0; j < i; j++){
-        printf("%x", packet[j]);
-        printf("\n");
-    }
+
+    // (Type 1)
+    packet[i++] = 1;  
+    packet[i++] = fileNameLength;  
+    memcpy(&packet[i], filename, fileNameLength);  
+    i += fileNameLength;
+
+    unsigned short checksum = calculateChecksum(packet, i);
+    memcpy(packet + i, &checksum, sizeof(unsigned short)); 
+
     return packet;
 }
 
 unsigned char* createDataPacket(int sequence, int dataSize, unsigned char* data) {
-    unsigned char* packet = (unsigned char*)malloc(4 + dataSize);
+    unsigned char* packet = (unsigned char*)malloc(4 + dataSize + sizeof(unsigned short));
     if (!packet) {
         perror("Failed to allocate memory for data packet");
         return NULL;
@@ -203,9 +202,26 @@ unsigned char* createDataPacket(int sequence, int dataSize, unsigned char* data)
     packet[1] = sequence; 
     packet[2] = (dataSize >> 8) & 0xFF; 
     packet[3] = dataSize & 0xFF;
-    printf(" %d DATASIZE/////////////////////\n", dataSize);   
 
     memcpy(packet + 4, data, dataSize); 
 
+    // Calculate and add checksum
+    unsigned short checksum = calculateChecksum(packet, 4 + dataSize);
+    memcpy(packet + 4 + dataSize, &checksum, sizeof(unsigned short));
+
     return packet;
+}
+
+unsigned short calculateChecksum(unsigned char* data, int length) {
+    unsigned short checksum = 0;
+    for (int i = 0; i < length; i++) {
+        checksum += data[i];
+    }
+    return checksum;
+}
+
+int verifyChecksum(unsigned char* packet, int packetSize) {
+    unsigned short receivedChecksum;
+    memcpy(&receivedChecksum, packet + packetSize - sizeof(unsigned short), sizeof(unsigned short));
+    return calculateChecksum(packet, packetSize - sizeof(unsigned short)) == receivedChecksum;
 }
