@@ -279,34 +279,27 @@ unsigned char infoFrameStateMachine(int fd) {
 
         for (int i = 0; i < bytesRead; i++) {
             unsigned char byte = buf[i];
-            printf("Byte read: 0x%02X (State: %d)\n", byte, state);
             switch (state) {
                 case START:
                     if (byte == FLAG) {
                         state = FLAG_RCV;  
-                        printf("State transitioned to FLAG_RCV.\n");
                     }
                     break;
                 case FLAG_RCV:
                     if (byte == A2) {
                         state = A_RCV; 
-                        printf("State transitioned to A_RCV.\n");
                     } else if (byte != FLAG) {
                         state = START;
-                        printf("Invalid byte received. Transitioned back to START.\n");
                     }
                     break;
                 case A_RCV:
                     if (byte == RR0 || byte == RR1 || byte == REJ0 || byte == REJ1 || byte == DISC) {
                         infoFrame = byte;  
                         state = C_RCV;  
-                        printf("State transitioned to C_RCV with infoFrame: 0x%02X.\n", infoFrame);
                     } else if (byte == FLAG) {
                         state = FLAG_RCV; 
-                        printf("State transitioned to FLAG_RCV.\n");
                     } else {
                         state = START;
-                        printf("Invalid byte received. Transitioned back to START.\n");
                     }
                     break;
                 case C_RCV:
@@ -315,7 +308,6 @@ unsigned char infoFrameStateMachine(int fd) {
                         printf("State transitioned to BCC1_OK.\n");
                     } else if (byte == FLAG) {
                         state = FLAG_RCV; 
-                        printf("State transitioned to FLAG_RCV.\n");
                     } else {
                         state = START; 
                         printf("Invalid BCC1 received. Transitioned back to START.\n");
@@ -327,7 +319,6 @@ unsigned char infoFrameStateMachine(int fd) {
                         printf("State transitioned to STOP_. Frame complete.\n");
                     } else {
                         state = START; 
-                        printf("Invalid byte received. Transitioned back to START.\n");
                     }
                     break;
                 default:
@@ -367,10 +358,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     printf("Starting transmission with a maximum of %d attempts...\n", max_retransmissions);
 
-    for(int i = 0; i<j; i++){
-        printf(" 0x%02X", frame[i]);
-        printf("\n");
-    }
+   
     while (transmission < max_retransmissions) { 
         alarmEnabled = FALSE; 
         alarm(timeout);       
@@ -511,10 +499,8 @@ int llread(unsigned char *packet) {
                             stop = 1;  // Stop reading if the packet was processed successfully
                         }
                     } else if (byte == ESC) {
-                        printf("ESC detected, transitioning to DETECTED_ESC\n");
                         state = DETECTED_ESC; 
                     } else {
-                        printf("Data byte stored: 0x%02X\n", byte);
                         packet[i++] = byte; 
                     }
                     break;
@@ -525,7 +511,6 @@ int llread(unsigned char *packet) {
                         printf("Escaped byte detected: 0x%02X\n", byte);
                         packet[i++] = byte;  
                     } else {
-                        printf("Escaped byte decoded: 0x%02X\n", byte ^ 0x20);
                         packet[i++] = byte ^ 0x20; 
                     }
                     state = PROCESSING;
