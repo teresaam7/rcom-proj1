@@ -76,6 +76,7 @@ typedef struct {
 /*-----------------------------------------------------------------------*/
 // Function Prototypes
 void alarmHandler(int signal);
+void initAlarm();
 int sendSupFrame(int fd, unsigned char addr, unsigned char ctrl);
 LLState SetUaStateMachine(int fd, unsigned char expectedAddr, unsigned char expectedCtrl, unsigned char expectedBCC);
 unsigned char calculateBCC2(const unsigned char *buf, int bufSize);
@@ -97,6 +98,15 @@ void alarmHandler(int signal)
     alarmCount++;
 
     printf("Waiting... #%d\n", alarmCount);
+}
+
+void initAlarm() {
+    struct sigaction act = { 0 };
+    act.sa_handler = &alarmHandler;
+    if (sigaction(SIGALRM, &act, NULL) == -1) {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
 }
 
 int sendSupFrame(int fd, unsigned char addr, unsigned char ctrl) {
@@ -208,9 +218,10 @@ int llopen(LinkLayer connectionParameters){
     switch (connectionParameters.role) {
         case LlTx: {
             printf("TRANSMITTER\n");
-            (void) signal(SIGALRM, alarmHandler);
+            
 
             while (alarmCount < max_retransmissions) {
+                initAlarm();
                 if (alarmEnabled == FALSE) {
                     sendSupFrame(fd, A1, SET);
                     alarm(timeout); 
@@ -539,7 +550,7 @@ int llread(unsigned char *packet) {
 int llclose(int showStatistics)
 {
     LLState state = START;
-    (void) signal(SIGALRM, alarmHandler);  
+    initAlarm();  
     alarmCount = 0;                       
     alarmEnabled = FALSE;              
 
