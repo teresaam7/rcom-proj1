@@ -11,10 +11,10 @@ unsigned char* parseCtrlPacket(unsigned char* packet, int size);
 unsigned short calculateChecksum(unsigned char* data, int length);
 int verifyChecksum(unsigned char* packet, int packetSize);
 
-double FER_HEADER = 0.01;  // 1% header error rate
-double FER_DATA = 0.01;    // 1% data error rate
-unsigned int T_prop = 100000;  // Simulate a 100 ms propagation delay
-int linkCapacity = 9600;  // Example: 9600 bits per second
+double FER_HEADER = 0.01;  
+double FER_DATA = 0.01;   
+unsigned int T_prop = 100000; 
+int linkCapacity = 9600;  
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename) {
@@ -93,8 +93,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 exit(-1);
             }
 
-            double transferTime = endTransferTimer();  // End transfer timer
-            int totalReceivedBits = fileSize * 8;  // Total bits transmitted
+            double transferTime = endTransferTimer();  
+            int totalReceivedBits = fileSize * 8; 
             double efficiency = (totalReceivedBits / transferTime) / linkCapacity;
             printf("Total Transfer Time: %f seconds\n", transferTime);
             printf("Efficiency (S): %f\n", efficiency);

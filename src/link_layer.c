@@ -342,13 +342,14 @@ int llwrite(const unsigned char *buf, int bufSize) {
     frame[3] = frame[1] ^ frame[2];  
 
     memcpy(frame + 4, buf, bufSize);
-    unsigned char BCC2 = calculateBCC2(buf, bufSize);
+
 
     int j = 4; // Start after A, C and BCC1
     for (int i = 0; i < bufSize; i++) {
         byteStuffingTechnique(&frame, &totalSize, buf[i], &j);
     }
 
+    unsigned char BCC2 = calculateBCC2(buf, bufSize);
     byteStuffingTechnique(&frame, &totalSize, BCC2, &j);
     
     frame[j++] = FLAG;
@@ -416,16 +417,17 @@ int processingData(unsigned char *packet, unsigned char byte, int *i, unsigned c
     unsigned char calculatedBCC2 = calculateBCC2(packet, *i);
     if (bcc2 == calculatedBCC2) {
         printf("BCC2 verified successfully. Sending RR.\n");
-        sendSupFrame(fd, A2, RR(infoFrame));
+        sendSupFrame(fd, A2, RR(infoFrame));  
         *state = STOP_; 
-        return 1; 
+        return 1;  
     } else {
         printf("Error in BCC2, sending REJ.\n");
-        sendSupFrame(fd, A2, REJ(infoFrame));
+        sendSupFrame(fd, A2, REJ(infoFrame));  
         *i = 0; 
-        return 0; 
+        return 0;  
     }
 }
+
 
 int llread(unsigned char *packet) {
     unsigned char byte;
