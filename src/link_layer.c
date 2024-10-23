@@ -217,7 +217,7 @@ int llopen(LinkLayer connectionParameters){
                     alarmEnabled = TRUE;
                 }
 
-                LLState state = SetUaStateMachine(fd, A2, UA, BCC1(A2, UA));
+                LLState state = SetUaStateMachine(fd, A1, UA, BCC1(A1, UA));
                 if (state == STOP_) {
                     alarm(0);
                     break;
@@ -229,7 +229,7 @@ int llopen(LinkLayer connectionParameters){
             printf("RECEIVER\n");
             LLState state = SetUaStateMachine(fd, A1, SET, BCC1(A1, SET));
             if (state == STOP_) {
-                sendSupFrame(fd, A2, UA);
+                sendSupFrame(fd, A1, UA);
             }
             break;
         }
@@ -304,7 +304,8 @@ unsigned char infoFrameStateMachine(int fd) {
                     } else if (byte == FLAG) {
                         state = FLAG_RCV; 
                         printf("State transitioned to FLAG_RCV.\n");
-                    } else {
+                    } 
+                    else {
                         state = START;
                         printf("Invalid byte received. Transitioned back to START.\n");
                     }
@@ -483,7 +484,11 @@ int llread(unsigned char *packet) {
                     } else if (byte == FLAG) {
                         state = FLAG_RCV;
                         printf("FLAG detected, transitioning to FLAG_RCV\n");
-                    } else if (byte == DISC) {
+                    }else if (byte == SET) {
+                        state = FLAG_RCV;
+                        printf("FLAG detected, transitioning to FLAG_RCV\n");
+                    }
+                     else if (byte == DISC) {
                         sendSupFrame(fd, A2, DISC);
                         return 0;
                     }
@@ -564,7 +569,7 @@ int llclose(int showStatistics)
             alarmEnabled = FALSE;
         }
 
-        state = SetUaStateMachine(fd, A2, DISC, BCC1(A2, DISC)); 
+        state = SetUaStateMachine(fd, A1, DISC, BCC1(A1, DISC)); 
         if (state == STOP_) {
             alarm(0);  
             break;
