@@ -10,6 +10,7 @@
 #define _POSIX_SOURCE 1 // POSIX compliant source
 
 int alarmEnabled = FALSE;
+int firstFrame = TRUE;
 int alarmCount = 0;
 int max_retransmissions = 0;
 int timeout = 0;
@@ -297,7 +298,7 @@ unsigned char infoFrameStateMachine(int fd) {
                     }
                     break;
                 case FLAG_RCV:
-                    if (byte == A2) {
+                    if (byte == A1) {
                         state = A_RCV; 
                     } else if (byte != FLAG) {
                         state = START;
@@ -314,7 +315,7 @@ unsigned char infoFrameStateMachine(int fd) {
                     }
                     break;
                 case C_RCV:
-                    if (byte == BCC1(A2, infoFrame)) {
+                    if (byte == BCC1(A1, infoFrame)) {
                         state = BCC1_OK;
                         printf("State transitioned to BCC1_OK.\n");
                     } else if (byte == FLAG) {
@@ -428,12 +429,12 @@ int processingData(unsigned char *packet, unsigned char byte, int *i, unsigned c
     unsigned char calculatedBCC2 = calculateBCC2(packet, *i);
     if (bcc2 == calculatedBCC2) {
         printf("BCC2 verified successfully. Sending RR.\n");
-        sendSupFrame(fd, A2, RR(infoFrame));  
+        sendSupFrame(fd, A1, RR(infoFrame));  
         *state = STOP_; 
         return 1;  
     } else {
         printf("Error in BCC2, sending REJ.\n");
-        sendSupFrame(fd, A2, REJ(infoFrame));  
+        sendSupFrame(fd, A1, REJ(infoFrame));  
         *i = 0; 
         return 0;  
     }
@@ -485,11 +486,11 @@ int llread(unsigned char *packet) {
                         state = FLAG_RCV;
                         printf("FLAG detected, transitioning to FLAG_RCV\n");
                     }else if (byte == SET) {
-                        state = FLAG_RCV;
-                        printf("FLAG detected, transitioning to FLAG_RCV\n");
+                        sendSupFrame(fd, A1, SET);
+                        return 0;
                     }
                      else if (byte == DISC) {
-                        sendSupFrame(fd, A2, DISC);
+                        sendSupFrame(fd, A1, DISC);
                         return 0;
                     }
                     else state = START;
@@ -538,7 +539,7 @@ int llread(unsigned char *packet) {
             }
         } else {
             printf("Read error. Sending REJ.\n");
-            sendSupFrame(fd, A2, REJ(infoFrame)); 
+            sendSupFrame(fd, A1, REJ(infoFrame)); 
             return -1;  
         }
     }
