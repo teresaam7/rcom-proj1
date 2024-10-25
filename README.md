@@ -1,4 +1,4 @@
-# INSTRUCTIONS FOR SERIAL PORT PROTOCOL
+# RCOM Project
 
 This folder contains the base code of the serial port protocol.
 
@@ -41,3 +41,7 @@ This folder contains the base code of the serial port protocol.
 5.1 Run the receiver and transmitter again.  
 5.2 Quickly move to the cable program console and press **0** to unplug the cable, **2** to add noise, and **1** for normal operation.  
 5.3 Check if the received file matches the sent file, even with cable disconnections or noise.
+
+## Members
+- Diana Nunes (up202208247@up.pt)
+- Teresa Mascarenhas (up202206828@up.pt)
