@@ -1,5 +1,6 @@
 #include "application_layer.h"
 #include "link_layer.h"
+#include "simulator.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -10,9 +11,13 @@ unsigned char* parseCtrlPacket(unsigned char* packet, int size);
 unsigned short calculateChecksum(unsigned char* data, int length);
 int verifyChecksum(unsigned char* packet, int packetSize);
 
+double FER_HEADER = 0.01;  
+double FER_DATA = 0.01;   
+unsigned int T_prop = 100000; 
+int linkCapacity = 9600;  
+
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
-                      int nTries, int timeout, const char *filename)
-{
+                      int nTries, int timeout, const char *filename) {
     LinkLayer linkLayer;
     strcpy(linkLayer.serialPort, serialPort);
     if (strcmp(role, "tx") == 0) {
@@ -55,6 +60,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             printf("file size %d \n", fileSize);
             printf("DATA PACKETS %d \n", nDataPackets);
 
+            startTransferTimer();  // Start the transfer timer
+
             for (int i = 0; i < nDataPackets; ++i) {
                 int dataSize = (i == nDataPackets - 1) ? (fileSize % MAX_PAYLOAD_SIZE) : MAX_PAYLOAD_SIZE;
                 if (dataSize == 0) dataSize = MAX_PAYLOAD_SIZE;
@@ -85,6 +92,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 perror("Closing error\n");
                 exit(-1);
             }
+
+            double transferTime = endTransferTimer();  
+            int totalReceivedBits = fileSize * 8; 
+            double efficiency = (totalReceivedBits / transferTime) / linkCapacity;
+            printf("Total Transfer Time: %f seconds\n", transferTime);
+            printf("Efficiency (S): %f\n", efficiency);
             break;
         }
 
@@ -97,8 +110,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
             int packetSize = -1;
 
-            while ((packetSize = llread(packet)) < 0);
+            while ((packetSize = llreadWithErrors(packet)) < 0);
+            simulatePropagationDelay();  // Simulate propagation delay
             printf("APP READ CTRL PACKET \n");
+
             if (packetSize < 5) {
                 fprintf(stderr, "Error reading control packet\n");
                 free(packet);
@@ -113,7 +128,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             }
 
             FILE *newFile = fopen("penguin_test.gif", "wb+");
-            //FILE *newFile = fopen((char *)fileName, "wb+");    // how it should be
             if (newFile == NULL) {
                 perror("Error opening file for writing");
                 free(packet);
@@ -121,13 +135,15 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             }
 
             while (1) {
-                while ((packetSize = llread(packet)) < 0);
+                while ((packetSize = llreadWithErrors(packet)) < 0);
+                simulatePropagationDelay();  // Simulate propagation delay
+
                 if (packetSize == 0) {
                     break; 
                 }
 
                 if (verifyChecksum(packet, packetSize)) {
-                    if (packet[0] == 2) { // Data packet type
+                    if (packet[0] == 2) {  // Data packet type
                         printf("APP READ DATA PACKET \n");
                         unsigned char *buffer = (unsigned char *)malloc(packetSize - 4 - sizeof(unsigned short));
                         memcpy(buffer, packet + 4, packetSize - 4 - sizeof(unsigned short));
