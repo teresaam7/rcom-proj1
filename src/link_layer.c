@@ -208,21 +208,22 @@ LLState SetUaStateMachine (int fd, unsigned char expectedAddr, unsigned char exp
     return state;
 }
 
-int llopen(LinkLayer connectionParameters){
+int llopen(LinkLayer connectionParameters) {
     fd = openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
     if (fd < 0) {
         return -1;
     }
+    
     max_retransmissions = connectionParameters.nRetransmissions;
     timeout = connectionParameters.timeout;
 
     switch (connectionParameters.role) {
-        case LlTx: {
+        case LlTx: {  // Transmitter mode
             printf("TRANSMITTER\n");
-            
 
             while (alarmCount < max_retransmissions) {
                 initAlarm();
+                
                 if (alarmEnabled == FALSE) {
                     sendSupFrame(fd, A1, SET);
                     alarm(timeout); 
@@ -230,24 +231,33 @@ int llopen(LinkLayer connectionParameters){
                 }
 
                 LLState state = SetUaStateMachine(fd, A1, UA, BCC1(A1, UA));
-                if (state == STOP_) {
-                    alarm(0);
-                    break;
+                
+                if (state == STOP_) { 
+                    alarm(0); 
+                    return 1; 
                 }
             }
-            break;
+            
+            printf("Maximum number of timeouts exceeded. Communication could not be established.\n");
+            return -1;
         }
-        case LlRx: {
+
+        case LlRx: {  // Receiver mode
             printf("RECEIVER\n");
+
             LLState state = SetUaStateMachine(fd, A1, SET, BCC1(A1, SET));
-            if (state == STOP_) {
-                sendSupFrame(fd, A1, UA);
+            
+            if (state == STOP_) { // Received SET frame
+                sendSupFrame(fd, A1, UA); 
+                return 1; 
             }
-            break;
+            
+            return -1;
         }
     }
-    return 1;
+    return -1; 
 }
+
 
 ////////////////////////////////////////////////
 // LLWRITE
@@ -343,7 +353,6 @@ unsigned char infoFrameStateMachine(int fd) {
     return infoFrame; 
 }
 
-
 int llwrite(const unsigned char *buf, int bufSize) {
     int totalSize = 6 + bufSize; 
     unsigned char *frame = (unsigned char *) malloc(totalSize);
@@ -355,8 +364,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     memcpy(frame + 4, buf, bufSize);
 
-
-    int j = 4; // Start after A, C and BCC1
+    int j = 4;
     for (int i = 0; i < bufSize; i++) {
         byteStuffingTechnique(&frame, &totalSize, buf[i], &j);
     }
@@ -371,7 +379,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     printf("Starting transmission with a maximum of %d attempts...\n", max_retransmissions);
 
-   
     while (transmission < max_retransmissions) { 
         alarmEnabled = FALSE; 
         alarm(timeout);       
@@ -400,10 +407,13 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
         if (check_rr) {
             printf("Transmission successful.\n");
-            break; 
+            alarm(0);  // Clear the alarm
+            alarmCount = 0;  // Reset alarm count after successful transmission
+            break;
         }
+
         printf("Transmission failed, attempt %d.\n", transmission + 1);
-        transmission++;  
+        transmission++;
     }
 
     free(frame);
@@ -416,6 +426,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
         return -1;
     }
 }
+
 
 ////////////////////////////////////////////////
 // LLREAD
@@ -514,7 +525,7 @@ int llread(unsigned char *packet) {
                     if (byte == FLAG) {
                         printf("FLAG detected, end of data frame\n");
                         if (processingData(packet, byte, &i, infoFrame, &state)) {
-                            stop = 1;  // Stop reading if the packet was processed successfully
+                            stop = 1; 
                         }
                     } else if (byte == ESC) {
                         state = DETECTED_ESC; 
@@ -552,24 +563,23 @@ int llread(unsigned char *packet) {
 // LLCLOSE
 ////////////////////////////////////////////////
 
-int llclose(int showStatistics)
-{
+int llclose(int showStatistics) {
     LLState state = START;
     initAlarm();  
-    alarmCount = 0;                       
-    alarmEnabled = FALSE;              
+    alarmCount = 0;
+    alarmEnabled = FALSE;
 
     while (alarmCount < max_retransmissions) {
 
         if (!alarmEnabled) {
             sendSupFrame(fd, A1, DISC);  
             alarm(timeout);             
-            alarmEnabled = FALSE;
+            alarmEnabled = TRUE;
         }
 
         state = SetUaStateMachine(fd, A1, DISC, BCC1(A1, DISC)); 
         if (state == STOP_) {
-            alarm(0);  
+            alarm(0);
             break;
         }
     }
