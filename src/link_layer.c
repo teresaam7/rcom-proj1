@@ -88,10 +88,6 @@ unsigned char infoFrameStateMachine(int fd);
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
-//A não perda de informação tem de ser garantida por esta layer
-//Os supervision frames sao de comando os unnembered sao de resposta
-//I,S ou U frames com header errado são ignorados
-//Só o transmitor envia I frames
 
 void alarmHandler(int signal)
 {
@@ -263,12 +259,6 @@ int llopen(LinkLayer connectionParameters) {
 // LLWRITE
 ////////////////////////////////////////////////
 
- /*escrever um pacote e fazer state machine a receber o pacote controlo a dizer que
-    (o que foi escrito foi recebido) */
-    //slide 23
-    /*a state machine do reciever tem de estar preparada para receber um SET e a do Transmiter tem de estar pronto para receber UA. 
-    Isto no inicio. se receber um set no meio das information frames é pq algo deu errado*/
-
 unsigned char calculateBCC2(const unsigned char *buf, int bufSize) {
     unsigned char BCC2 = buf[0];
     for (int i = 1; i < bufSize; i++) {
@@ -407,8 +397,8 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
         if (check_rr) {
             printf("Transmission successful.\n");
-            alarm(0);  // Clear the alarm
-            alarmCount = 0;  // Reset alarm count after successful transmission
+            alarm(0); 
+            alarmCount = 0; 
             break;
         }
 
@@ -454,7 +444,7 @@ int processingData(unsigned char *packet, unsigned char byte, int *i, unsigned c
 
 int llread(unsigned char *packet) {
     unsigned char byte;
-    int i = 0;                 // Index for the packet buffer
+    int i = 0;              
     LLState state = START;    
     int bytesRead = 0;         
     unsigned char infoFrame;  
