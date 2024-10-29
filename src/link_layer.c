@@ -494,8 +494,9 @@ int llread(unsigned char *packet) {
                         state = FLAG_RCV;
                         printf("FLAG detected, transitioning to FLAG_RCV\n");
                     }else if (byte == SET) {
-                        sendSupFrame(fd, A1, SET);
-                        return 0;
+                        sendSupFrame(fd, A1, UA);
+                        state = START;
+                        continue;
                     }
                      else if (byte == DISC) {
                         sendSupFrame(fd, A1, DISC);
