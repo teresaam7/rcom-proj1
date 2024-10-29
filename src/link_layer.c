@@ -44,8 +44,7 @@ typedef struct {
     int totalTransmissions;    
     int successfulTransmissions; 
     int failedTransmissions;   
-    int totalBytesSent;       
-    int totalBytesReceived;   
+    int totalBytesSent;         
 } LinkStatistics;
 
 LinkStatistics stats = {0};
@@ -103,7 +102,6 @@ void alarmHandler(int signal)
 {
     alarmEnabled = FALSE;
     alarmCount++;
-
     printf("Waiting... #%d\n", alarmCount);
 }
 
@@ -119,11 +117,6 @@ void initAlarm() {
 int sendSupFrame(int fd, unsigned char addr, unsigned char ctrl) {
     unsigned char frame[BUF_SIZE] = {FLAG, addr, ctrl, addr ^ ctrl, FLAG};
     int bytes = write(fd, frame, BUF_SIZE);
-    printf("SSF %d bytes written\n", bytes);
-    for (int i = 0; i < 5; i++) {
-        printf("%x ", frame[i]);
-    }
-    printf("\n");
     return bytes;
 }
 
@@ -462,7 +455,7 @@ int llread(unsigned char *packet) {
     LLState state = START;    
     int bytesRead = 0;         
     unsigned char infoFrame;  
-    int stop = 0;              // Flag to determine when to stop reading
+    int stop = 0;           
 
     printf("Starting llread...\n");
 
@@ -520,7 +513,7 @@ int llread(unsigned char *packet) {
                     } else {
                         state = START;
                         printf("Erro de BCC1, voltando ao estado START\n");
-                        return -1; // Sinaliza erro e termina o loop.
+                        return -1;
                     }
                     break;
 
@@ -530,7 +523,6 @@ int llread(unsigned char *packet) {
                     if (byte == FLAG) {
                         printf("FLAG detected, end of data frame\n");
                         if (processingData(packet, byte, &i, infoFrame, &state)) {
-                            stats.totalBytesReceived += i;
                             stop = 1; 
                         }
                     } else if (byte == ESC) {
@@ -585,7 +577,7 @@ int llclose(int showStatistics) {
             alarmEnabled = TRUE;
 
             stats.totalTransmissions++;
-            stats.totalBytesSent += discFrameSize; // Use o tamanho real do quadro DISC
+            stats.totalBytesSent += discFrameSize; 
         }
 
         state = SetUaStateMachine(fd, A1, DISC, BCC1(A1, DISC)); 
@@ -597,7 +589,7 @@ int llclose(int showStatistics) {
     }
 
     if (state != STOP_) {
-        printf("FAILED AFTER RETRIES.\n");
+        printf("Failed after retries.\n");
         stats.failedTransmissions++;
         return -1; 
     }
@@ -605,9 +597,9 @@ int llclose(int showStatistics) {
 
     int uaFrameSize = sizeof(A1) + sizeof(UA) + sizeof(BCC1(A1, UA));
     sendSupFrame(fd, A1, UA); 
-    stats.totalBytesSent += uaFrameSize; // Atualizar para o quadro UA também
+    stats.totalBytesSent += uaFrameSize; 
 
-    printf("CLOSED WITH SUCCESS.\n");
+    printf("Closed with success.\n");
 
     if (showStatistics) {
         printf("Statistics:\n");
@@ -615,7 +607,6 @@ int llclose(int showStatistics) {
         printf("Successful Transmissions: %d\n", stats.successfulTransmissions);
         printf("Failed Transmissions: %d\n", stats.failedTransmissions);
         printf("Total Bytes Sent: %d\n", stats.totalBytesSent);
-        printf("Total Bytes Received: %d\n", stats.totalBytesReceived);
     }
 
     int clstat = closeSerialPort();
