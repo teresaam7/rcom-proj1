@@ -520,7 +520,7 @@ int llread(unsigned char *packet) {
                     } else {
                         state = START;
                         printf("Erro de BCC1, voltando ao estado START\n");
-                        return -1; 
+                        return -1; // Sinaliza erro e termina o loop.
                     }
                     break;
 
@@ -575,6 +575,7 @@ int llclose(int showStatistics) {
     alarmCount = 0;
     alarmEnabled = FALSE;
 
+    // Calcular o tamanho do quadro DISC
     int discFrameSize = sizeof(A1) + sizeof(DISC) + sizeof(BCC1(A1, DISC));
 
     while (alarmCount < max_retransmissions) {
@@ -584,7 +585,7 @@ int llclose(int showStatistics) {
             alarmEnabled = TRUE;
 
             stats.totalTransmissions++;
-            stats.totalBytesSent += discFrameSize; 
+            stats.totalBytesSent += discFrameSize; // Use o tamanho real do quadro DISC
         }
 
         state = SetUaStateMachine(fd, A1, DISC, BCC1(A1, DISC)); 
@@ -601,9 +602,10 @@ int llclose(int showStatistics) {
         return -1; 
     }
 
+
     int uaFrameSize = sizeof(A1) + sizeof(UA) + sizeof(BCC1(A1, UA));
     sendSupFrame(fd, A1, UA); 
-    stats.totalBytesSent += uaFrameSize; 
+    stats.totalBytesSent += uaFrameSize; // Atualizar para o quadro UA também
 
     printf("CLOSED WITH SUCCESS.\n");
 
