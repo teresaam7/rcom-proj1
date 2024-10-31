@@ -1,13 +1,8 @@
-// Link layer protocol implementation
 
 #include "link_layer.h"
 #include "serial_port.h"
-////////////////////////////////////////
 
-///////////////////////////////////////
-
-// MISC
-#define _POSIX_SOURCE 1 // POSIX compliant source
+#define _POSIX_SOURCE 1 
 
 int alarmEnabled = FALSE;
 int firstFrame = TRUE;
@@ -50,40 +45,30 @@ typedef struct {
 LinkStatistics stats = {0};
 
 #define T_SECONDS 3
-#define BUF_SIZE 5 // POSIX compliant source
+#define BUF_SIZE 5 
 
-/*-----------------------------------------------------------------------*/
-
-#define FLAG    0x7E // start of a supervision frame
-#define A1      0x03 // addr field in command frames(S) sent by the Transmitter or replies(U) sent by the reciever
-#define A2      0x01 // addr field in command frames(S) sent by the Reciever or replies(U) sent by the Transmiter
-#define ESC     0x7D // escape octet followed by the result of the exclusive
-
-//------Supervision and Unnumbered frames -----------//
+#define FLAG    0x7E 
+#define A1      0x03 
+#define A2      0x01 
+#define ESC     0x7D 
 
 #define SET     0X03
 #define UA      0x07
-#define RR0     0xAA // reciever is ready to recieve an information frame nº 0
-#define RR1     0xAB // reciever is ready to recieve an information frame nº 1
-#define REJ0    0x54 // reciever is rejects information from frame nº 0
-#define REJ1    0x55 // reciever is rejects information from frame nº 1
-#define DISC    0x0B // frame to indicate termination of a connection
-#define BCC1(a,c) ((a)^(c)) // field to detect the occurence of errors in the header
+#define RR0     0xAA 
+#define RR1     0xAB 
+#define REJ0    0x54 
+#define REJ1    0x55 
+#define DISC    0x0B 
+#define BCC1(a,c) ((a)^(c)) 
 
-//------Information frames -----------//
+#define INFO0    0x00 
+#define INFO1    0x80 
 
-#define INFO0    0x00 // Information frame number 0
-#define INFO1    0x80 // Information frame number 1
-
-// Nr- Número de sequências de receção
-// Ns- Número de sequências de transmissão
 
 #define RR(Nr) ((Nr == 0) ? RR0 : RR1)
 #define REJ(Nr) ((Nr == 0) ? REJ0 : REJ1)
 #define I(Ns)  ((Ns == 0) ? INFO0 : INFO1)
 
-/*-----------------------------------------------------------------------*/
-// Function Prototypes
 
 void alarmHandler(int signal);
 void initAlarm();
@@ -93,10 +78,7 @@ unsigned char calculateBCC2(const unsigned char *buf, int bufSize);
 void byteStuffingTechnique(unsigned char **frame, int *frameSize, unsigned char byte, int *j);
 unsigned char infoFrameStateMachine(int fd);
 
-/*-----------------------------------------------------------------------*/
-////////////////////////////////////////////////
-// LLOPEN
-////////////////////////////////////////////////
+
 
 void alarmHandler(int signal)
 {
@@ -135,65 +117,48 @@ LLState SetUaStateMachine (int fd, unsigned char expectedAddr, unsigned char exp
             unsigned char byte = buf[i];
             switch (state) {
                 case START:
-                    printf("State: START\n");
                     if (byte == FLAG) {
                         state = FLAG_RCV;
-                        printf("Transition to: FLAG_RCV\n");
                     }
                     break;
 
                 case FLAG_RCV:
-                    printf("State: FLAG_RCV\n");
                     if (byte == FLAG) {
-                        printf("Received FLAG again, staying in FLAG_RCV\n");
                         state = START;
                     } else if (byte == expectedAddr) {
                         state = A_RCV;
-                        printf("Transition to: A_RCV (A byte received: 0x%02X)\n", byte);
                     }
                     break;
 
                 case A_RCV:
-                    printf("State: A_RCV\n");
                     if (byte == FLAG) {
                         state = FLAG_RCV;
-                        printf("Received FLAG, transition to: FLAG_RCV\n");
                     } else if (byte == expectedCtrl) {
                         state = C_RCV;
-                        printf("Transition to: C_RCV (C byte received: 0x%02X)\n", byte);
                     } else {
                         state = START;
-                        printf("Unexpected byte (0x%02X), returning to START\n", byte);
                     }
                     break;
 
                 case C_RCV:
-                    printf("State: C_RCV\n");
                     if (byte == FLAG) {
                         state = FLAG_RCV;
-                        printf("Received FLAG, transition to: FLAG_RCV\n");
                     } else if (byte == expectedBCC) {
                         state = BCC1_OK;
-                        printf("Transition to: BCC1_OK (BCC1 check passed: 0x%02X)\n", byte);
                     } else {
                         state = START;
-                        printf("BCC1 mismatch (received 0x%02X), returning to START\n", byte);
                     }
                     break;
 
                 case BCC1_OK:
-                    printf("State: BCC1_OK\n");
                     if (byte == FLAG) {
                         state = STOP_;
-                        printf("Transition to: STOP_  |!RECEIVED CORRECTLY!| \n");
                     } else {
                         state = START;
-                        printf("Expected FLAG but received 0x%02X, returning to START\n", byte);
                     }
                     break;
 
                 default:
-                    printf("Unknown state encountered. Resetting to START.\n");
                     state = START;
                     break;
             }
@@ -212,8 +177,7 @@ int llopen(LinkLayer connectionParameters) {
     timeout = connectionParameters.timeout;
 
     switch (connectionParameters.role) {
-        case LlTx: {  // Transmitter mode
-            printf("TRANSMITTER\n");
+        case LlTx: {  
 
             while (alarmCount < max_retransmissions) {
                 initAlarm();
@@ -236,12 +200,11 @@ int llopen(LinkLayer connectionParameters) {
             return -1;
         }
 
-        case LlRx: {  // Receiver mode
-            printf("RECEIVER\n");
+        case LlRx: { 
 
             LLState state = SetUaStateMachine(fd, A1, SET, BCC1(A1, SET));
             
-            if (state == STOP_) { // Received SET frame
+            if (state == STOP_) { 
                 sendSupFrame(fd, A1, UA); 
                 return 1; 
             }
@@ -252,10 +215,6 @@ int llopen(LinkLayer connectionParameters) {
     return -1; 
 }
 
-
-////////////////////////////////////////////////
-// LLWRITE
-////////////////////////////////////////////////
 
 unsigned char calculateBCC2(const unsigned char *buf, int bufSize) {
     unsigned char BCC2 = buf[0];
@@ -284,7 +243,6 @@ unsigned char infoFrameStateMachine(int fd) {
     unsigned char infoFrame = 0;
     LLState state = START;
 
-    printf("Starting infoFrameStateMachine...\n");
     unsigned char buf[BUF_SIZE] = {0};
     while (state != STOP_ && !alarmEnabled) {
         int bytesRead = read(fd, buf, BUF_SIZE);
@@ -321,25 +279,21 @@ unsigned char infoFrameStateMachine(int fd) {
                 case C_RCV:
                     if (byte == BCC1(A1, infoFrame)) {
                         state = BCC1_OK;
-                        printf("State transitioned to BCC1_OK.\n");
                     } else if (byte == FLAG) {
                         state = FLAG_RCV; 
                     } else {
                         state = START; 
-                        printf("Invalid BCC1 received. Transitioned back to START.\n");
                     }
                     break;
                 case BCC1_OK:
                     if (byte == FLAG) {
                         state = STOP_;
-                        printf("State transitioned to STOP_. Frame complete.\n");
                     } else {
                         state = START; 
                     }
                     break;
                 default:
                     state = START;
-                    printf("Unknown state. Transitioned back to START.\n");
                     break;
             }
         }
@@ -371,8 +325,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
     int transmission = 0;
     int check_rej = 0, check_rr = 0;
 
-    printf("Starting transmission with a maximum of %d attempts...\n", max_retransmissions);
-
     while (transmission < max_retransmissions) { 
         alarmEnabled = FALSE; 
         alarm(timeout);       
@@ -380,7 +332,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
         check_rr = 0;
 
         while (!alarmEnabled && !check_rej && !check_rr) {
-            printf("Writing frame to fd...\n");
             write(fd, frame, j);
 
             stats.totalBytesSent += j;
@@ -391,18 +342,15 @@ int llwrite(const unsigned char *buf, int bufSize) {
                 continue;
             } else if (res == REJ(0) || res == REJ(1)) { 
                 check_rej = 1;
-                printf("Received REJ response.\n");
             } else if (res == RR(0) || res == RR(1)) { 
                 check_rr = 1;
                 send = (send + 1) % 2; 
-                printf("Received RR response. Transitioning send to %d.\n", send);
             } else {
                 continue;
             }
         }
 
         if (check_rr) {
-            printf("Transmission successful.\n");
             stats.totalBytesSent += totalSize;
             alarm(0); 
             alarmCount = 0; 
@@ -425,23 +373,16 @@ int llwrite(const unsigned char *buf, int bufSize) {
 }
 
 
-////////////////////////////////////////////////
-// LLREAD
-////////////////////////////////////////////////
-
 int processingData(unsigned char *packet, unsigned char byte, int *i, unsigned char infoFrame, LLState *state) {
     unsigned char bcc2 = packet[*i - 1];
     (*i)--; 
-    printf("Checking BCC2...\n");
 
     unsigned char calculatedBCC2 = calculateBCC2(packet, *i);
     if (bcc2 == calculatedBCC2) {
-        printf("BCC2 verified successfully. Sending RR.\n");
         sendSupFrame(fd, A1, RR(infoFrame));  
         *state = STOP_; 
         return 1;  
     } else {
-        printf("Error in BCC2, sending REJ.\n");
         sendSupFrame(fd, A1, REJ(infoFrame));  
         *i = 0; 
         return 0;  
@@ -457,45 +398,36 @@ int llread(unsigned char *packet) {
     unsigned char infoFrame;  
     int stop = 0;           
 
-    printf("Starting llread...\n");
 
     while (!stop && state != STOP_) { 
         if (read(fd, &byte, 1) > 0) {
-            printf("Byte received: 0x%02X\n", byte);
             bytesRead++;
         
             switch (state) {
                 case START:
-                    printf("State: START\n");
                     if (byte == FLAG) {
                         state = FLAG_RCV;
-                        printf("FLAG detected, transitioning to FLAG_RCV\n");
                     }
                     break;
 
                 case FLAG_RCV:
-                    printf("State: FLAG_RCV\n");
                     if (byte == A1) {
                         state = A_RCV;
-                        printf("A1 detected, transitioning to A_RCV\n");
                     } else if (byte != FLAG) {
                         state = START;
-                        printf("Byte different from FLAG and A1, returning to START\n");
                     }
                     break;
 
                 case A_RCV:
-                    printf("State: A_RCV\n");
                     if (byte == I(0) || byte == I(1)) {
                         infoFrame = byte; 
                         state = C_RCV;
-                        printf("Info frame detected: 0x%02X, transitioning to C_RCV\n", byte);
                     } else if (byte == FLAG) {
                         state = FLAG_RCV;
-                        printf("FLAG detected, transitioning to FLAG_RCV\n");
                     }else if (byte == SET) {
-                        sendSupFrame(fd, A1, SET);
-                        return 0;
+                        sendSupFrame(fd, A1, UA);
+                        state = START;
+                        continue;
                     }
                      else if (byte == DISC) {
                         sendSupFrame(fd, A1, DISC);
@@ -505,23 +437,20 @@ int llread(unsigned char *packet) {
                     break;
 
                 case C_RCV:
-                    printf("State: C_RCV\n");
                     if (byte == (A1 ^ infoFrame)) {
                         state = PROCESSING;
                     } else if (byte == FLAG) {
                         state = FLAG_RCV;
                     } else {
                         state = START;
-                        printf("Erro de BCC1, voltando ao estado START\n");
+                        printf("Error on BCC1, going back to START\n");
                         return -1;
                     }
                     break;
 
 
                 case PROCESSING:
-                    printf("State: PROCESSING\n");
                     if (byte == FLAG) {
-                        printf("FLAG detected, end of data frame\n");
                         if (processingData(packet, byte, &i, infoFrame, &state)) {
                             stop = 1; 
                         }
@@ -533,9 +462,7 @@ int llread(unsigned char *packet) {
                     break;
 
                 case DETECTED_ESC:
-                    printf("State: DETECTED_ESC\n");
                     if (byte == ESC || byte == FLAG) {
-                        printf("Escaped byte detected: 0x%02X\n", byte);
                         packet[i++] = byte;  
                     } else {
                         packet[i++] = byte ^ 0x20; 
@@ -553,13 +480,8 @@ int llread(unsigned char *packet) {
         }
     }
 
-    printf("Packet received successfully. Size: %d bytes\n", i);
     return i; 
 }
-
-////////////////////////////////////////////////
-// LLCLOSE
-////////////////////////////////////////////////
 
 int llclose(int showStatistics) {
     LLState state = START;
@@ -567,7 +489,6 @@ int llclose(int showStatistics) {
     alarmCount = 0;
     alarmEnabled = FALSE;
 
-    // Calcular o tamanho do quadro DISC
     int discFrameSize = sizeof(A1) + sizeof(DISC) + sizeof(BCC1(A1, DISC));
 
     while (alarmCount < max_retransmissions) {
