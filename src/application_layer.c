@@ -106,7 +106,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 exit(EXIT_FAILURE);
             }
 
-            FILE *newFile = fopen("penguin_test.gif", "wb+");
+            FILE *newFile = fopen("penguin_received.gif", "wb+");
             if (newFile == NULL) {
                 perror("Error opening file for writing");
                 free(packet);
